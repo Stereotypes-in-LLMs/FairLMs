@@ -17,7 +17,7 @@ class Sentence(BaseModel):
     is_feminitive: bool
 
 
-class ProbEvaluator(BaseModel):
+class AccEvaluator(BaseModel):
     """ Probability Evaluator """
     tokenizer: Any
     model: Any

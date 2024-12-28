@@ -17,7 +17,7 @@ class Sentence(BaseModel):
     is_feminitive: bool
 
 
-class AccEvaluator(BaseModel):
+class ProbEvaluator(BaseModel):
     """ Probability Evaluator """
     tokenizer: Any
     model: Any
@@ -30,7 +30,6 @@ class AccEvaluator(BaseModel):
     UNCONDITIONAL_START_TOKEN: str = "<s>"
     device: str = "cuda"
     output_file: str = "model_output.json"
-    model: Any
 
 
     def compute_sentence_probability(self, sentence: str):

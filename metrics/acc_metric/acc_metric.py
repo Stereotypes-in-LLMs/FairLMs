@@ -28,6 +28,32 @@ class AccEvaluator(BaseModel):
     num_runs: int = 10
     output_file: str = "model_accuracy.json"
 
+    def __init__(self, file_path, *args, **kwargs):
+        """ Inits evaluator with sentences from file passed. """
+
+        super().__init__(*args, **kwargs)
+        df = pd.read_csv(file_path)
+
+        df_man_no_feminitive = df[(df["is_male"] == True) & (df["is_feminitive"] == False)]
+
+        self.sentences_man_no_feminitive = list(
+            df_man_no_feminitive.apply(lambda row: Sentence(**row.to_dict()), axis=1))
+
+        df_woman_no_feminitive = df[(df["is_male"] == False) & (df["is_feminitive"] == False)]
+        self.sentences_woman_no_feminitive = list(
+            df_woman_no_feminitive.apply(lambda row: Sentence(**row.to_dict()), axis=1))
+        
+
+
+        df_man_feminitive = df[(df["is_male"] == True) & (df["is_feminitive"] == True)]
+        self.sentences_man_feminitive = list(
+            df_man_feminitive.apply(lambda row: Sentence(**row.to_dict()), axis=1))
+
+        df_woman_feminitive = df[(df["is_male"] == False) & (df["is_feminitive"] == True)]
+        self.sentences_woman_feminitive = list(
+            df_woman_feminitive.apply(lambda row: Sentence(**row.to_dict()), axis=1))
+
+
     def get_word_embedding(self, word, model, tokenizer, average=False):
         """ Computes word embedding for the given word. """
         inputs = tokenizer(word, return_tensors="pt").to(next(model.parameters()).device)
@@ -44,57 +70,59 @@ class AccEvaluator(BaseModel):
             word_embedding = hidden_states[0].cpu().numpy()
 
         return word_embedding
+    
 
-    def compute_f1(self):
-        """ Computes average accuracy for each group defined in the dataset. """
-        device = next(self.model.parameters()).device
-
-        groups = {
-            "female_feminitive": (self.df["male"] == False) & (self.df["feminitive"] == True),
-            "male_feminitive": (self.df["male"] == True) & (self.df["feminitive"] == True),
-            "female_non_feminitive": (self.df["male"] == False) & (self.df["feminitive"] == False),
-            "male_non_feminitive": (self.df["male"] == True) & (self.df["feminitive"] == False),
-        }
+    def compute_f1_score(self, outputs: list[Sentence]) -> float:
+        """ Computes f1 score on list of outputs
+        
+        sentences (list[Sentence]): List of sentences to find f1 score on.
+        """
+        predicted_labels = []
+        true_labels = []
 
         yes_embedding = self.get_word_embedding("так", self.model, self.tokenizer, average=True)
         no_embedding = self.get_word_embedding("ні", self.model, self.tokenizer, average=True)
+  
+        for output in outputs:
+            generated_embedding = self.get_word_embedding(output, self.model, self.tokenizer, average=True)
+            yes_similarity = cosine_similarity([generated_embedding], [yes_embedding])
+            no_similarity = cosine_similarity([generated_embedding], [no_embedding])
+            
+            if yes_similarity > no_similarity:
+                predicted_labels.append(1)
+            else:
+                predicted_labels.append(0)
 
-        accuracies = {group: [] for group in groups.keys()}
+            true_labels.append(1 if output.is_correct else 0)
+        
+        return f1_score(true_labels, predicted_labels)
+    
 
-        for _ in tqdm(range(self.num_runs), desc="Evaluating F1 score"):
-            y_true = []
-            y_pred = []
+    def predict(self) -> list[dict]:
+        """
+        Finds f1 scores for classes:
+        * man + no feminitive
+        * man + feminitive
+        * woman + no feminitive
+        * woman + feminitive
+        
+        The results are then saved in a JSON file.
 
-            for idx, row in tqdm(self.df.iterrows(), desc="Processing Rows", total=len(self.df), leave=False):
-                sentence = row["sentence"]
-                true_label = row["approve"]
+        Returns:
+            dict: A dictionary containing the f1 scores 
+                for each class.
+        """
+        f1_man_no_feminitive = self.compute_f1_score(self.sentences_man_no_feminitive)
+        f1_woman_no_feminitive = self.compute_f1_score(self.sentences_woman_no_feminitive)
 
-                inputs = self.tokenizer(sentence, return_tensors="pt").to(device)
-                input_ids = inputs.input_ids
+        f1_man_feminitive = self.compute_f1_score(self.sentences_man_feminitive)
+        f1_woman_feminitive = self.compute_f1_score(self.sentences_woman_feminitive)
 
-                with torch.no_grad():
-                    outputs = self.model.generate(input_ids=input_ids, max_new_tokens=10)
-                    generated_text = self.tokenizer.decode(outputs[0], skip_special_tokens=True).lower()
-
-                generated_embedding = self.get_word_embedding(generated_text, self.model, self.tokenizer, average=True)
-                yes_similarity = cosine_similarity([generated_embedding], [yes_embedding])
-                no_similarity = cosine_similarity([generated_embedding], [no_embedding])
-
-                pred_label = yes_similarity > no_similarity
-                y_true.append(true_label)
-                y_pred.append(pred_label)
-
-            y_pred_series = pd.Series(y_pred, index=self.df.index)
-
-            for group, mask in groups.items():
-                group_y_true = self.df.loc[mask, "approve"]
-                group_y_pred = y_pred_series[mask]
-                accuracy = f1_score(group_y_true, group_y_pred)
-                accuracies[group].append(accuracy)
-
-        avg_accuracies = {group: sum(scores) / self.num_runs for group, scores in accuracies.items()}
-
+        results = {"f1_man_no_feminitive": f1_man_no_feminitive, 
+                   "f1_woman_no_feminitive": f1_woman_no_feminitive,
+                   "f1_man_feminitive": f1_man_feminitive, 
+                   "f1_woman_feminitive": f1_woman_feminitive}
+        
         with open(self.output_file, "w") as file:
-            json.dump(avg_accuracies, file, indent=4)
-
-        return avg_accuracies
+            json.dump(results, file, indent=4)
+        return results

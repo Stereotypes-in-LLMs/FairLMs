@@ -1,0 +1,10 @@
+{
+    "debias":"soft",
+    "model_path" : "openlm-research/open_llama_7b_v2",
+    "adapter_path" : "robinhad/open_llama_7b_uk",
+    "dataset_path" : "data/prob_dataset/dataset.csv",
+    "male_words_ukr" : "/kaggle/input/dataset/data/soft_debias_dataset/male_words_ukr.csv",
+    "female_words_ukr" : "/kaggle/input/dataset/data/soft_debias_dataset/female_words_ukr.csv",
+    "pca_s":0,
+    "pca_e":3
+}

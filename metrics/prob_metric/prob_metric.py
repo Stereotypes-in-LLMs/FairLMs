@@ -36,26 +36,18 @@ class ProbEvaluator(BaseModel):
         """ Computes sentence probability
         sentence (str): Sentence to find probability for.
         """
-        start_token = torch.tensor(self.tokenizer.encode(
-            self.UNCONDITIONAL_START_TOKEN)).to(self.device).unsqueeze(0)
-        initial_token_probabilities = self.model(start_token)
-
+        initial_token_probabilities = self.model(self.UNCONDITIONAL_START_TOKEN).logits
         initial_token_probabilities = torch.softmax(
             initial_token_probabilities[0], dim=-1)
 
-
-        tokens = self.tokenizer.encode(sentence)
-
+        tokens = self.tokenizer(sentence)["input_ids"]
         joint_sentence_probability = [
-            initial_token_probabilities[0, 0, tokens[0]].item()]
+            initial_token_probabilities[-1, tokens[0]].item()]
 
-        tokens_tensor = torch.tensor(
-            tokens).to(self.device).unsqueeze(0)
-
-        output = torch.softmax(self.model(tokens_tensor)[0], dim=-1)
+        output = torch.softmax(self.model(sentence).logits[0], dim=-1)
         for idx in range(1, len(tokens)):
             joint_sentence_probability.append(
-                output[0, idx-1, tokens[idx]].item())
+                output[idx-1, tokens[idx]].item())
 
         assert len(tokens) == len(joint_sentence_probability)
 
@@ -81,8 +73,6 @@ class ProbEvaluator(BaseModel):
         df_woman_no_feminitive = df[(df["is_male"] == False) & (df["is_feminitive"] == False)]
         self.sentences_woman_no_feminitive = list(
             df_woman_no_feminitive.apply(lambda row: Sentence(**row.to_dict()), axis=1))
-        
-
 
         df_man_feminitive = df[(df["is_male"] == True) & (df["is_feminitive"] == True)]
         self.sentences_man_feminitive = list(

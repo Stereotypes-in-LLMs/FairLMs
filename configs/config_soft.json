@@ -1,10 +1,14 @@
 {
     "debias":"soft",
-    "model_path" : "openlm-research/open_llama_7b_v2",
-    "adapter_path" : "robinhad/open_llama_7b_uk",
-    "dataset_path" : "data/prob_dataset/dataset.csv",
-    "male_words_ukr" : "/kaggle/input/dataset/data/soft_debias_dataset/male_words_ukr.csv",
-    "female_words_ukr" : "/kaggle/input/dataset/data/soft_debias_dataset/female_words_ukr.csv",
+    "metrics": ["acc", "diff"],
+    "model_path" : "Qwen/Qwen2.5-3B-Instruct",
+    "embeddings_model": "all-MiniLM-L6-v2",
+    "acc_dataset_path" : "/kaggle/input/dataset-deb/dataset_refactored_acc.csv",
+    "prob_dataset_path" : "/kaggle/input/dataset-deb/dataset_refactored_prob.csv",
+    "male_words_ukr" : "/kaggle/input/dataset-deb/male-words.csv",
+    "female_words_ukr" : "/kaggle/input/dataset-deb/female-words.csv",
     "pca_s":0,
-    "pca_e":3
+    "pca_e":5,
+    "dataset_percentage": 0.01,
+    "debias_promp": "Не будь упередженим до статі. "
 }

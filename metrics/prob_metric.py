@@ -16,7 +16,6 @@ class Sentence(BaseModel):
     is_correct: bool
     is_feminitive: bool
 
-
 class DiffEvaluator(BaseModel):
     """ Probability Evaluator """
     tokenizer: Any
@@ -41,6 +40,7 @@ class DiffEvaluator(BaseModel):
     output_file: str = "model_output.json"
     dataset_percentage: float = 0.01
 
+
     def compute_sentence_probability(self, sentence: str, number_eos = 0):
         """ Computes sentence probability
         sentence (str): Sentence to find probability for.
@@ -53,8 +53,8 @@ class DiffEvaluator(BaseModel):
         joint_sentence_probability = [
             initial_token_probabilities[-1, tokens[0]].item()]
 
-
-        output = torch.softmax(self.model(sentence, token_debias_type = TokensDebiasType.FIRST_SENTENCE_WORD).logits[0], dim=-1)
+        output = torch.softmax(self.model(sentence, token_debias_type = TokensDebiasType.FIRST_SENTENCE_WORD, number_eos = number_eos).logits[0], dim=-1)
+        
         for idx in range(1, len(tokens)):
             joint_sentence_probability.append(
                 output[idx-1, tokens[idx]].item() + 1e-12)
@@ -101,6 +101,7 @@ class DiffEvaluator(BaseModel):
         self.sentences_woman_feminitive = list(
             df_woman_feminitive.apply(lambda row: Sentence(**row.to_dict()), axis=1))
         
+        
         assert all([(sentence_man.profession == sentence_woman.profession and
                     sentence_man.experience == sentence_woman.experience and
                     sentence_man.is_correct == sentence_woman.is_correct and
@@ -110,9 +111,9 @@ class DiffEvaluator(BaseModel):
         assert all([(sentence_man.profession == sentence_woman.profession and
                     sentence_man.experience == sentence_woman.experience and
                     sentence_man.is_correct == sentence_woman.is_correct and
-                    sentence_man.is_feminitive == sentence_woman.is_feminitive and
-                    sentence_man.is_male != sentence_woman.is_male)  for sentence_man, sentence_woman in zip(self.sentences_man_feminitive, self.sentences_woman_feminitive)]), "Data is not symmetric, it is critical"
-
+                    sentence_man.is_feminitive != sentence_woman.is_feminitive and
+                    sentence_man.is_male != sentence_woman.is_male)  for sentence_man, sentence_woman in zip(self.sentences_man_no_feminitive, self.sentences_woman_feminitive)]), "Data is not symmetric, it is critical"
+        
 
     def compute_difference(self, man_sentences: list[Sentence], woman_sentences: list[Sentence]) -> float:
         """ Computes f1 score on list of sentences (difference between predictions man and woman)
@@ -124,15 +125,15 @@ class DiffEvaluator(BaseModel):
         prob_woman_no = []
         prob_woman = []
 
-        for sentence_man, sentence_woman in tqdm(zip(man_sentences[:int(self.dataset_percentage * len(man_sentences))],
-                                                      woman_sentences[:int(self.dataset_percentage * len(woman_sentences))])):
+        man_labels = []
+        woman_labels = []
+        
+        for sentence_man, sentence_woman in tqdm(list(zip(man_sentences[:int(self.dataset_percentage * len(man_sentences))], woman_sentences[:int(self.dataset_percentage * len(woman_sentences))]))):
             sentence_man_data = sentence_man.sentence.replace("BLANK ", "")
             sentence_woman_data = sentence_woman.sentence.replace("BLANK ", "")
 
             tokens_man_len = len(self.tokenizer(sentence_man_data)["input_ids"])
             tokens_woman_len = len(self.tokenizer(sentence_woman_data)["input_ids"])
-            print(tokens_man_len)
-            print(tokens_woman_len)
             
             max_tokens_len = max(tokens_man_len, tokens_woman_len)
             
@@ -153,9 +154,20 @@ class DiffEvaluator(BaseModel):
             
             prob_has_no_position_man = self.compute_sentence_probability(sentence_man_data_no, max_tokens_len_no - tokens_man_len_no)
             prob_has_no_position_woman = self.compute_sentence_probability(sentence_woman_data_no, max_tokens_len_no - tokens_woman_len_no)
-            
+
             prob_man_no.append(prob_has_no_position_man)
             prob_woman_no.append(prob_has_no_position_woman)
+
+            if prob_has_position_man > prob_has_no_position_man:
+                man_labels.append(1)
+            else:
+                man_labels.append(0)
+
+            if prob_has_position_woman > prob_has_no_position_woman:
+                woman_labels.append(1)
+            else:
+                woman_labels.append(0)
+                
         
         diff_has = []
         diff_not = []
@@ -175,7 +187,10 @@ class DiffEvaluator(BaseModel):
         std_diff_has = np.std(diff_has) if diff_has else 0
         std_diff_not = np.std(diff_not) if diff_not else 0
 
-        return mean_diff_has, mean_diff_not, std_diff_has, std_diff_not
+        assert len(woman_labels) == len(man_labels)
+        _acc = np.sum(np.array(man_labels) ==  np.array(woman_labels)) / len(woman_labels)
+        
+        return mean_diff_has, mean_diff_not, std_diff_has, std_diff_not, _acc
         
     def compute_probacc_man_woman(self, man_sentences: list[Sentence], woman_sentences: list[Sentence]) -> float:
         """ Computes f1 score on list of sentences (difference between predictions man and woman)
@@ -204,7 +219,8 @@ class DiffEvaluator(BaseModel):
                 woman_labels.append(0)
 
         return np.sum(np.array(man_labels) ==  np.array(woman_labels)) / len(woman_labels)
-  
+
+
     def predict(self) -> list[dict]:
         """
         Finds f1 scores for classes:
@@ -221,21 +237,15 @@ class DiffEvaluator(BaseModel):
         """
 
         print("Starting difference metric evaluation")
-        mean_diff_has_f, mean_diff_not_f, std_diff_has_f, std_diff_not_f = self.compute_difference(self.sentences_man_no_feminitive, self.sentences_woman_feminitive)
-        mean_diff_has_nf, mean_diff_not_nf, std_diff_has_nf, std_diff_not_nf = self.compute_difference(self.sentences_man_no_feminitive, self.sentences_woman_no_feminitive)
-
-        print("Starting Accuracy metric evaluation - acc_feminitive")
-        acc_diff_feminitive = self.compute_probacc_man_woman(self.sentences_man_no_feminitive, self.sentences_woman_feminitive)
-
-        print("Starting Accuracy metric evaluation - acc_no_feminitive")
-        acc_diff_no_feminitive = self.compute_probacc_man_woman(self.sentences_man_no_feminitive, self.sentences_woman_no_feminitive)
+        mean_diff_has_f, mean_diff_not_f, _, _, acc_diff_feminitive = self.compute_difference(self.sentences_man_no_feminitive, self.sentences_woman_feminitive)
+        mean_diff_has_nf, mean_diff_not_nf, _, _, acc_diff_no_feminitive = self.compute_difference(self.sentences_man_no_feminitive, self.sentences_woman_no_feminitive)
 
         results = {"mean_diff_f": abs(mean_diff_has_f) + abs(mean_diff_not_f),
                    "mean_diff_nf": abs(mean_diff_has_nf) + abs(mean_diff_not_nf),
                    "prob_f1_diff_feminitive":acc_diff_feminitive,
                    "prob_f1_diff_no_feminitive":acc_diff_no_feminitive,
                   }
-
+        
         with open(self.output_file, "w") as file:
             json.dump(results, file, indent=4)
         return results

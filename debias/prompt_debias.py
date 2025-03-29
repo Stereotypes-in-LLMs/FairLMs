@@ -12,12 +12,18 @@ class PrompDebiasModelWrapper(BaseModel):
         token_embeddings = self.model.get_input_embeddings()(inputs['input_ids'].to("cuda"))
         return inputs['attention_mask'], token_embeddings
     
-    def forward(self, text, output_hidden_states: False, **kwargs):
-        text = self.debias_prompt + text
+    def forward(self, text, output_hidden_states: False, number_eos = 0, **kwargs):
+        eos_token = self.tokenizer.eos_token
+
+        if eos_token is None:
+            raise ValueError("This tokenizer does not have an eos_token defined.")
+            
+        text = self.debias_prompt + text + eos_token * number_eos
+
         modified_embeddings = self.debias_embeddings(text)
         outputs = self.model(attention_mask=modified_embeddings[0],
-                    inputs_embeds=modified_embeddings[1], output_hidden_states = output_hidden_states)
+                    inputs_embeds=modified_embeddings[1], output_hidden_states = output_hidden_states, disable_tqdm=True)
         return outputs
     
-    def __call__(self, tokens, output_hidden_states: bool = False, **kwargs):
-        return self.forward(tokens,output_hidden_states = output_hidden_states, **kwargs)
+    def __call__(self, tokens, output_hidden_states: bool = False, number_eos = 0, **kwargs):
+        return self.forward(tokens,output_hidden_states = output_hidden_states, number_eos = number_eos, **kwargs)

@@ -7,7 +7,6 @@ import re
 from sklearn.metrics.pairwise import cosine_similarity
 from utils import TokensDebiasType
 
-
 def get_word_embedding(word, model, tokenizer, average = False):
     """
     Returns given word embedding
@@ -46,7 +45,6 @@ def find_subset_indices(lst, subset):
             return i + len(subset)
     return -1
 
-
 class SoftDebiasModelWrapper(BaseModel):
     model:Any
     model_name: str
@@ -83,8 +81,7 @@ class SoftDebiasModelWrapper(BaseModel):
 
         difference_vectors = []
         for pair in gender_word_pairs:
-            difference_vectors.append(get_word_embedding(pair[0], self.model, self.tokenizer, average = True) -
-                                       get_word_embedding(pair[1], self.model, self.tokenizer, average = True))
+            difference_vectors.append(get_word_embedding(pair[0], self.model, self.tokenizer, average = True) - get_word_embedding(pair[1], self.model, self.tokenizer, average = True))
         
         # Dimensionality reduction
         X = np.array(difference_vectors)
@@ -96,19 +93,16 @@ class SoftDebiasModelWrapper(BaseModel):
         l, principal_axes = l[idx], principal_axes[:, idx]
         principal_components = X.dot(principal_axes)
         PCA_k = principal_components[:, self.pca_component_s : self.pca_component_e]
-        
         # finding projectors
         self.projectors = []
         for i in range(PCA_k.shape[-1]):
             a = PCA_k[:, i]
             self.projectors.append(np.outer(a, a) / np.inner(a, a))
-
     def is_word_in_sentence(self, word, sentence):
         word = word.lower()
         sentence = sentence = re.sub(r'[.,?!]', '', sentence.lower())
         words = sentence.split()
         return word in words
-
     def debias_embeddings(self, text, token_debias_type: TokensDebiasType = TokensDebiasType.LAST_WORD):
 
         debias_words = []
@@ -129,7 +123,9 @@ class SoftDebiasModelWrapper(BaseModel):
         token_embeddings = self.model.get_input_embeddings()(inputs['input_ids'].to("cuda"))
 
         tokens = inputs['input_ids'][0].tolist()
+        buffer = []
         debias_indexes = []
+        start = 0
         found_words = 0
         if text != self.UNCONDITIONAL_START_TOKEN:
             for word in debias_words:
@@ -146,7 +142,7 @@ class SoftDebiasModelWrapper(BaseModel):
                         left_part = left - 1
                         break
                 if not_found:
-                    print("Not Found", word)
+                    # print("Not Found", word)
                     continue
                 for right in range(len(tokens), left - 1, -1):
                     if self.is_word_in_sentence(word,self.tokenizer.decode(tokens[left_part:right])):
@@ -161,7 +157,7 @@ class SoftDebiasModelWrapper(BaseModel):
                 assert word.lower() not in self.tokenizer.decode(tokens[left_part+1:right_part]).lower()
                 assert word.lower() not in self.tokenizer.decode(tokens[left_part:right_part-1]).lower()
                 found_words += 1
-                print("Found", self.tokenizer.decode(tokens[left_part:right_part]).lower())
+                # print("Found", self.tokenizer.decode(tokens[left_part:right_part]).lower())
                 debias_indexes.append((left_part, right_part))
             if self.hard_like:
                 assert found_words == 3
@@ -172,11 +168,18 @@ class SoftDebiasModelWrapper(BaseModel):
                 token_embeddings[0][pair[0] + i] = torch.tensor(debias_word((token_embeddings[0][pair[0] + i]).tolist(), self.projectors))
         return inputs['attention_mask'], token_embeddings
 
-    def forward(self, tokens, token_debias_type, output_hidden_states: bool = False):
-        modified_embeddings = self.debias_embeddings(tokens, token_debias_type = token_debias_type)
+    def forward(self, text, token_debias_type, number_eos = 0, output_hidden_states: bool = False):
+        eos_token = self.tokenizer.eos_token
+
+        if eos_token is None:
+            raise ValueError("This tokenizer does not have an eos_token defined.")
+    
+        text = text + eos_token * number_eos    
+        
+        modified_embeddings = self.debias_embeddings(text, token_debias_type = token_debias_type)
         outputs = self.model(attention_mask=modified_embeddings[0],
-                    inputs_embeds=modified_embeddings[1], output_hidden_states = output_hidden_states)
+                    inputs_embeds=modified_embeddings[1], output_hidden_states = output_hidden_states, disable_tqdm=True)
         return outputs
     
-    def __call__(self, tokens, output_hidden_states: bool = False, token_debias_type: TokensDebiasType = TokensDebiasType.NONE):
-        return self.forward(tokens, token_debias_type, output_hidden_states = output_hidden_states)
+    def __call__(self, tokens, output_hidden_states: bool = False, number_eos = 0, token_debias_type: TokensDebiasType = TokensDebiasType.NONE):
+        return self.forward(tokens, token_debias_type, output_hidden_states = output_hidden_states, number_eos = number_eos)

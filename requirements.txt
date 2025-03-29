@@ -1,5 +1,6 @@
 accelerate==1.5.2
 annotated-types==0.7.0
+bitsandbytes==0.42.0
 certifi==2025.1.31
 charset-normalizer==3.4.1
 filelock==3.18.0

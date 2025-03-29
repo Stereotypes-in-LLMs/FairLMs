@@ -93,8 +93,8 @@ class Runner(BaseModel):
 def main(config_path):
     params = parse_config(config_path=config_path)
     runner = Runner()
-    runner.run(params, preload_model = False, result_file_path = 'data.json')
+    runner.run(params, preload_model = True, result_file_path = 'data.json')
 
 if __name__ == "__main__":
     print("Test started")
-    main("/path/to/config")
+    main("configs/config_soft.json")

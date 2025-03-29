@@ -1,3 +1,3 @@
-from no_debias import PlainModelWrapper
-from prompt_debias import PrompDebiasModelWrapper
-from soft_debias import SoftDebiasModelWrapper
+from debias.no_debias import PlainModelWrapper
+from debias.prompt_debias import PrompDebiasModelWrapper
+from debias.soft_debias import SoftDebiasModelWrapper

@@ -9,6 +9,7 @@ from metrics import AccEvaluator, DiffEvaluator
 from sentence_transformers import SentenceTransformer
 import json
 
+OUTPUT_FILE = "<path to output file>"
 
 def load_model(model_path):
     """
@@ -93,7 +94,7 @@ class Runner(BaseModel):
 def main(config_path):
     params = parse_config(config_path=config_path)
     runner = Runner()
-    runner.run(params, preload_model = True, result_file_path = 'data.json')
+    runner.run(params, preload_model = True, result_file_path = OUTPUT_FILE)
 
 if __name__ == "__main__":
     print("Test started")

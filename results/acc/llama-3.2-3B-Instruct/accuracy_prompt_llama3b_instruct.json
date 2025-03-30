@@ -1,0 +1,9 @@
+{
+    "acc": {
+        "acc_man_no_feminitive": 0.5168195718654435,
+        "acc_woman_no_feminitive": 0.5495049504950495,
+        "acc_woman_feminitive": 0.5956416464891042,
+        "acc_diff_feminitive": 0.5257142857142857,
+        "acc_diff_no_feminitive": 0.5285714285714286
+    }
+}

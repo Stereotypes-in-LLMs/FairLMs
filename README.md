@@ -58,3 +58,15 @@ Implemented in `metrics/`:
 - `ProbDiffMetric`: Distributional bias via likelihood scores
 
 Results are logged in `results/`.
+
+## Examples
+
+Example config files are in `configs/`. You can create your own by editing parameters for:
+
+- Model name
+
+- Debiasing method
+
+- Dataset splits
+
+- Output directories

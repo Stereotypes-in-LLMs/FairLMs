@@ -43,7 +43,7 @@ Two datasets for accuracy and probability measurment
 
 - Relevant / Irrelevant experience
 
-📁 See data/ for full samples and construction logic.
+📁 See `data/` for full samples and construction logic.
 
 ## Evaluation Metrics
 

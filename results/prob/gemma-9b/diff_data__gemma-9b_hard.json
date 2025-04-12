@@ -1,0 +1,8 @@
+{
+    "diff": {
+        "mean_diff_f": 0.0992822800723841,
+        "mean_diff_nf": 0.0897303288628193,
+        "prob_f1_diff_feminitive": 0.6989751190801842,
+        "prob_f1_diff_no_feminitive": 0.7203066801428901
+    }
+}

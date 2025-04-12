@@ -70,3 +70,10 @@ Example config files are in `configs/`. You can create your own by editing param
 - Dataset splits
 
 - Output directories
+
+## Acknowledgments
+Coming soon.
+
+
+## Citation
+Coming soon.

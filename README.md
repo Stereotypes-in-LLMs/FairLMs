@@ -16,12 +16,14 @@ We introduce both Q&A-based and probability-based evaluation metrics to quantify
 
 ```bash
 FairLMs/
-├── data/                # Synthetic hiring dataset (351 professions x 8 variations)
-├── models/              # Fine-tuning scripts and LoRA configs
-├── evaluation/          # QA and probabilistic evaluation metrics
-├── debiasing/           # Prompting, embedding debiasing implementations
-├── results/             # Saved results (CSV/JSON)
-├── utils/               # Helper functions
-├── requirements.txt     # Python dependencies
-└── main.py              # Entry point for experiments
+├── configs/       # Configuration files for running experiments
+├── data/          # Synthetic hiring dataset (351 professions × 8 variants)
+├── debias/        # Implementations of prompt, embedding, and fine-tuning methods
+├── metrics/       # Evaluation metrics (QAAccMetric, ProbDiffMetric, etc.)
+├── parser/        # Wrapper for running debiasing methods
+├── results/       # Saved outputs, logs, and results
+├── utils.py       # Utility functions
+├── main.py        # Main script for running experiments
+├── requirements.txt
+└── README.md
 ```

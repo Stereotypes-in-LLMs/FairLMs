@@ -21,7 +21,7 @@ FairLMs/
 ├── debias/        # Implementations of prompt, embedding, and fine-tuning methods
 ├── metrics/       # Evaluation metrics (QAAccMetric, ProbDiffMetric, etc.)
 ├── parser/        # Wrapper for running debiasing methods
-├── results/       # Saved outputs, logs, and results
+├── results/       # Saved resulting metrics 
 ├── utils.py       # Utility functions
 ├── main.py        # Main script for running experiments
 ├── requirements.txt

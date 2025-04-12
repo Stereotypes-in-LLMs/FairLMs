@@ -31,6 +31,8 @@ FairLMs/
 ## Dataset
 The dataset includes:
 
+Two datasets for accuracy and probability measurment
+
 351 Ukrainian professions
 
 8 variations per profession:
@@ -42,3 +44,17 @@ The dataset includes:
 - Relevant / Irrelevant experience
 
 📁 See data/ for full samples and construction logic.
+
+## Evaluation Metrics
+
+Implemented in `metrics/`:
+
+- `QAAccMetric`: QA accuracy (F1) per gender/form
+
+- `QADiffMetric`: Prediction consistency across gendered variants
+
+- `ProbAccMetric`: Classification accuracy via probability
+
+- `ProbDiffMetric`: Distributional bias via likelihood scores
+
+Results are logged in `results/`.

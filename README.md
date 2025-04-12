@@ -27,3 +27,18 @@ FairLMs/
 ├── requirements.txt
 └── README.md
 ```
+
+## Dataset
+The dataset includes:
+
+351 Ukrainian professions
+
+8 variations per profession:
+
+- Male / Female
+
+- Femininitive / Non-femininitive
+
+- Relevant / Irrelevant experience
+
+📁 See data/ for full samples and construction logic.

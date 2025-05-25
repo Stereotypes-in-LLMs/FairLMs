@@ -1,4 +1,4 @@
-# FairLMs
+# GBEM-UA: Gender Bias Evaluation and Mitigation for Ukrainian Large Language Models
 
 This repository contatains the source code of the paper "GBEM-UA: Gender Bias Evaluation and Mitigation for Ukrainian Large Language Models".
 

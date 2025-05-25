@@ -71,9 +71,11 @@ Example config files are in `configs/`. You can create your own by editing param
 
 - Output directories
 
-## Acknowledgments
-Coming soon.
-
 
 ## Citation
 Coming soon.
+
+## License
+
+This repository is licensed under the MIT License. See the [LICENSE](LICENSE) file for details.
+

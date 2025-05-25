@@ -1,6 +1,6 @@
 # FairLMs
 
-This repository contatains the source code of the paper {name}.
+This repository contatains the source code of the paper "GBEM-UA: Gender Bias Evaluation and Mitigation for Ukrainian Large Language Models".
 
 ## Overview
 

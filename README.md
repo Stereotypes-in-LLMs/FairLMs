@@ -73,8 +73,24 @@ Example config files are in `configs/`. You can create your own by editing param
 
 
 ## Citation
-Coming soon.
-
+@inproceedings{buleshnyi-etal-2025-gbem,
+    title = "{GBEM}-{UA}: Gender Bias Evaluation and Mitigation for {U}krainian Large Language Models",
+    author = "Buleshnyi, Mykhailo  and
+      Buleshnyi, Maksym  and
+      Sumyk, Marta  and
+      Drushchak, Nazarii",
+    editor = "Romanyshyn, Mariana",
+    booktitle = "Proceedings of the Fourth Ukrainian Natural Language Processing Workshop (UNLP 2025)",
+    month = jul,
+    year = "2025",
+    address = "Vienna, Austria (online)",
+    publisher = "Association for Computational Linguistics",
+    url = "https://aclanthology.org/2025.unlp-1.8/",
+    doi = "10.18653/v1/2025.unlp-1.8",
+    pages = "64--72",
+    ISBN = "979-8-89176-269-5",
+    abstract = "Large Language Models (LLMs) have demonstrated remarkable performance across various domains, but they often inherit biases present in the data they are trained on, leading to unfair or unreliable outcomes{---}particularly in sensitive areas such as hiring, medical decision-making, and education. This paper evaluates gender bias in LLMs within the Ukrainian language context, where the gendered nature of the language and the use of feminitives introduce additional complexity to bias analysis. We propose a benchmark for measuring bias in Ukrainian and assess several debiasing methods, including prompt debiasing, embedding debiasing, and fine-tuning, to evaluate their effectiveness. Our results suggest that embedding debiasing alone is insufficient for a morphologically rich language like Ukrainian, whereas fine-tuning proves more effective in mitigating bias for domain-specific tasks."
+}
 ## License
 
 This repository is licensed under the MIT License. See the [LICENSE](LICENSE) file for details.

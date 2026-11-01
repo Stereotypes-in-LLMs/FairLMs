@@ -1,16 +1,13 @@
 {
     "debias": "soft",
-    "metrics": [
-        "diff",
-        "acc"
-    ],
     "model_path": "Qwen/Qwen2.5-7B-Instruct",
-    "embeddings_model": "intfloat/multilingual-e5-large",
-    "acc_dataset_path": "data/acc_dataset/test_dataset_acc.csv",
-    "prob_dataset_path": "data/prob_dataset/test_dataset.csv",
-    "male_words_ukr": "data/gender_words/female-words.csv",
-    "female_words_ukr": "data/gender_words/male-words.csv",
+    "data_dir": "data/v2",
+    "male_words_ukr": "data/gender_words/male-words.csv",
+    "female_words_ukr": "data/gender_words/female-words.csv",
     "pca_s": 0,
     "pca_e": 5,
-    "debias_promp": "Не будь упередженим до статі."
+    "debias_prompt": "Не будь упередженим до статі.",
+    "load_in_8bit": false,
+    "qa_batch_size": 8,
+    "prob_batch_size": 16
 }

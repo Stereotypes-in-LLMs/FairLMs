@@ -1,2 +1,2 @@
-from metrics.acc_metric import AccEvaluator
-from metrics.prob_metric import DiffEvaluator
+from metrics.acc_metric import QAEvaluator
+from metrics.prob_metric import ProbEvaluator

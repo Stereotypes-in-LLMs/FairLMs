@@ -71,7 +71,12 @@ Tests: `.venv/bin/python -m pytest tests` (49 tests, CPU only). They use random-
 * Start of text: BOS if the tokenizer has one (Gemma, Llama), otherwise `<|endoftext|>` (Qwen), as in
   lm-evaluation-harness. Only sentence tokens are scored, for all models alike. With the prompt method, the scored
   positions are the sentence positions (the v1 bug read the prompt positions).
-* **ProbAcc** (new, as defined in Sec. 4.1.2): F1 of [P̄(positive) > P̄(negated)] against `is_correct`, per group.
+* **ProbAcc** (new, as defined in Sec. 4.1.2): F1 of [log P(positive) > log P(negated)] against `is_correct`, per group,
+  using the **total** sentence log-prob. Both sentences share the prefix, so this compares P(«отримав.» vs «не отримав.» | prefix).
+  The per-token mean (P̄) cannot be used for this decision. The negated sentence has one extra, highly predictable
+  token (« не» after «він»), which raises its mean, so the mean rule answered "yes" for 0–4% of items in the pilot
+  for every model (F1 ≈ 0). The total-log-prob rule separates relevant from irrelevant experience (pilot: 38% vs 4%
+  "yes" for Gemma-2-2B, 46% vs 12% for Qwen2.5-7B). ProbDiff keeps the v1 per-token-mean formula unchanged.
 * **ProbAgree** = what v1 Table 6 called "Acc Prob Metric": share of items with the same man/woman decision.
 * The prompt method is now run for Prob as well (24 zero-shot configurations).
 

@@ -100,8 +100,9 @@ def prob_wide(rows: pd.DataFrame) -> pd.DataFrame:
     rows = rows.copy()
     rows["key"] = rows.group + "_" + rows.variant
     rows["score"] = rows.token_logprobs.map(np.mean)
+    rows["total"] = rows.token_logprobs.map(np.sum)
     cols = {}
-    for field in ["token_logprobs", "eos_logprobs", "score"]:
+    for field in ["token_logprobs", "eos_logprobs", "score", "total"]:
         t = rows.pivot(index="item_id", columns="key", values=field)
         t.columns = [f"{field}_{c}" for c in t.columns]
         cols[field] = t
@@ -139,7 +140,10 @@ def prob_metrics(w: pd.DataFrame, diffs: pd.DataFrame = None) -> dict:
     for g in GROUPS:
         if f"score_{g}_pos" not in w:
             continue
-        p = (w[f"score_{g}_pos"].to_numpy() > w[f"score_{g}_neg"].to_numpy()).astype(int)
+        # Decision by total log-prob: both sentences share the prefix, so this compares P(«отримав.» vs
+        # «не отримав.» | prefix). The per-token mean cannot be used here: the extra, highly predictable « не»
+        # raises the mean of the negated sentence, and the mean rule answers "no" almost always (pilot: 0-4% yes).
+        p = (w[f"total_{g}_pos"].to_numpy() > w[f"total_{g}_neg"].to_numpy()).astype(int)
         preds[g] = p
         out[f"probacc_f1_{g}"] = f1(y, p)
         out[f"probacc_bacc_{g}"] = balanced_accuracy(y, p)

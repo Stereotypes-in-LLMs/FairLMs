@@ -392,9 +392,9 @@ def figures(est, diffs, mem, out):
         plt.close(fig)
 
 
-def md_table(df):
+def md_table(df, empty="_no runs yet_"):
     if df is None or df.empty:
-        return "_no runs yet_\n"
+        return empty + "\n"
     return df.to_markdown(index=False) + "\n"
 
 
@@ -408,7 +408,7 @@ def claims(est, diffs, v1):
         rows.append({"claim (paper)": "QADiff is consistently larger in feminitive contexts (p. 67)",
                      "published": f"holds for {(v1[v1.method == 'none'].qadiff_fem > v1[v1.method == 'none'].qadiff_nofem).sum()}/6 models (point estimates)",
                      "corrected": f"gap CI > 0 for {len(pos)}/{len(gaps)} models",
-                     "still holds?": "yes" if len(pos) == len(gaps) else "no"})
+                     "still holds?": "yes" if len(pos) == len(gaps) else "partly" if len(pos) else "no"})
     hard = diffs[(diffs.family == "qa") & (diffs.scope == "full") & (diffs.method == "hard") &
                  diffs.metric.isin(["qadiff_fem", "qadiff_nofem"])]
     if not hard.empty:
@@ -444,7 +444,8 @@ def claims(est, diffs, v1):
         rows.append({"claim (paper)": "Qwen2.5-3B: zero difference after debiasing",
                      "published": "QADiff 0.000–0.004 (0–3 of 700 items), F1 = 2/3",
                      "corrected": "yes_rate (man, non-fem): " + ", ".join(f"{r.method} {r.value:.3f}" for r in deg.itertuples()),
-                     "still holds?": "no (degenerate)" if ((deg.value > 0.95) | (deg.value < 0.05)).any() else "re-check"})
+                     "still holds?": "no (degenerate)" if ((deg.value > 0.95) | (deg.value < 0.05)).any()
+                     else "no: not degenerate under v2, QADiff in T3"})
     f1d = diffs[(diffs.family == "qa") & (diffs.scope == "full") & diffs.metric.str.startswith("f1_") &
                 ~diffs.method.isin(FT_METHODS)]
     if not f1d.empty:
@@ -483,7 +484,11 @@ def write_report(est, diffs, ft, mem, mc, pv, v1, path, fig_dir, B):
     dp = dp.assign(cell=[fmt(v, lo, hi, 4) + (" *" if lo > 0 or hi < 0 else "") for v, lo, hi in zip(dp.delta, dp.lo, dp.hi)])
     dp = dp.pivot_table(index=["model", "method"], columns="metric", values="cell", aggfunc="first").reset_index()
     degenerate = est[(est.family == "qa") & (est.scope == "full") & est.metric.str.startswith("yes_rate_") &
-                     ((est.value > 0.95) | (est.value < 0.05))]
+                     ((est.value > 0.95) | (est.value < 0.05))][["model", "method", "metric", "value"]]
+    if len(pv):  # prompt-variant runs (T8) only carry the man_nofem yes-rate
+        pdeg = pv[(pv.metric == "yes_rate_man_nofem") & ((pv.value > 0.95) | (pv.value < 0.05))]
+        degenerate = pd.concat([degenerate, pdeg.assign(method=pdeg.method + "@" + pdeg.variant)[
+            ["model", "method", "metric", "value"]]])
     mcq = mc[mc.family == "qa"] if len(mc) else mc
     t7 = claims(est, diffs, v1)
     ftq = ft[(ft.metric_family == "qa") & ft.metric.isin(["f1_man_nofem", "qadiff_fem", "qadiff_nofem"])] if len(ft) else ft
@@ -501,7 +506,7 @@ QADiff = share of items where the man and woman answers differ. The profession w
 
 A configuration whose share of «так» is outside [0.05, 0.95] for some group answers (almost) constantly; its QADiff is near zero by construction and must not be read as "no bias".
 
-{md_table(degenerate[["model", "method", "metric", "value"]] if len(degenerate) else None)}
+{md_table(degenerate, "_none: every configuration answers «так» to between 5% and 95% of items in every group_")}
 ## T2. QA quality (zero-shot, full)
 
 {md_table(t2)}

@@ -92,6 +92,23 @@ The number reproduces exactly as the mean over 6 models × {fem, non-fem} of (QA
 * *"Cost of lower QA accuracy"*: several cited drops are ≤ 0.002 F1, which is about one item at n = 700.
 * No CI, test or seed exists anywhere. 1/700 = 0.00143 is the resolution of every QADiff in the table.
 
+### 3.5 R0: the published code does not reproduce exactly (run 2026-11-01)
+
+`scripts/r0_regression.py` ran the v1 code (taken verbatim from the tag) on the v1 test set with Qwen2.5-7B-Instruct
+in 8-bit, as in v1. Only the environment differs: transformers 5.22 vs 4.50, bitsandbytes 0.50 vs 0.42
+(`results/r0_regression.json`).
+
+| | published | R0 | difference |
+|---|---|---|---|
+| QADiff fem | 0.1043 | 0.1000 | 3 / 700 items |
+| QADiff non-fem | 0.0714 | 0.0814 | 7 / 700 items |
+| F1 man, non-fem | 0.7913 | 0.7966 | |
+
+The pipeline runs and lands in the same range, but changing the numerical environment alone moves QADiff by up to
+0.010 (7 items). The v1 protocol takes the argmax of 5 generated tokens and maps the text to yes/no by embedding
+similarity, so near-tie items flip. Several v1 between-method differences are of this size or smaller
+(e.g. Qwen2.5-7B soft vs none: +4 / +6 items), so they cannot be distinguished from environment noise.
+
 ## 4. What this changes
 
 | Result | Leak | Data defects | QA protocol | Projection bug | No statistics | Action |

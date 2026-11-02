@@ -1,0 +1,17 @@
+{
+  "model": "Qwen/Qwen2.5-7B-Instruct",
+  "percentage": 1.0,
+  "8bit": true,
+  "acc_man_no_feminitive": 0.7966305655836342,
+  "acc_woman_no_feminitive": 0.8064516129032258,
+  "acc_woman_feminitive": 0.7894131185270425,
+  "acc_diff_feminitive": 0.9,
+  "acc_diff_no_feminitive": 0.9185714285714286,
+  "expected": {
+    "acc_diff_feminitive": 0.8957142857142857,
+    "acc_diff_no_feminitive": 0.9285714285714286,
+    "acc_man_no_feminitive": 0.7913148371531966
+  },
+  "max_abs_dev": 0.010000000000000009,
+  "reproduced": false
+}

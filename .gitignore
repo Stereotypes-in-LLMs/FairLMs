@@ -167,3 +167,4 @@ checkpoints/
 logs/
 results/raw/*_pilot*.jsonl
 results/summary/*_pilot*.json
+results/raw/

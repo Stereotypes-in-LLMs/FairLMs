@@ -11,6 +11,7 @@ of the sentence positions.
 To keep the v1 ProbDiffMetric formula, `pad` EOS tokens are appended after the sentence, where `pad`
 is the largest length difference to any gender variant of the same item; their log-probs are stored
 separately so both padded (v1) and unpadded scores can be computed offline (metrics/scores.py).
+ProbAcc/ProbAgree decide positive vs negated by total sentence log-prob (see metrics/scores.prob_metrics).
 """
 import json
 

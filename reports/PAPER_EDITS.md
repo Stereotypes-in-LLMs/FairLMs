@@ -142,22 +142,28 @@ Reference fixes:
 > We introduce GBEM-UA, a benchmark of 2,792 Ukrainian hiring questions and statements over 349 professions that
 > vary the candidate's gender and the grammatical form of the job title (masculine vs feminitive). Across six
 > instruction-tuned LLMs, 2–12% of answers change with the candidate's gender. When both candidates are described
-> with the masculine title, the disagreements favour the male candidate in three to four of six models. Feminitive
-> titles increase the number of gender-dependent answers in four models, but shift them in the female candidate's
-> favour. Neither embedding projection nor a debiasing instruction reduces gender disagreement reliably. LoRA
+> with the masculine title, the disagreements favour the male candidate in three to four of six models. In all six
+> models a job title whose grammatical gender matches the candidate's raises the share of positive answers, so a
+> masculine-generic title disadvantages women and a feminitive title favours them. Most gender-dependent answers
+> concern unqualified candidates, where unqualified men are accepted more often than unqualified women. Neither embedding projection nor a debiasing instruction reduces gender disagreement reliably. LoRA
 > fine-tuning reduces it on unseen professions, but a control adapter trained on male examples only reduces it
 > equally, so the improvement reflects task learning rather than debiasing. We release the data with a
 > profession-level split, the code, and 95% bootstrap confidence intervals for every result.
 
-**Sec. 5 Results (structure):** T2 (quality, degenerate check) → T3 + margin/McNemar (bias, direction) → F1 (method
+**Sec. 5 Results (structure):** T2 (quality, degenerate check) → T3 + margin/McNemar (bias, direction) →
+agreement effect, flips by relevance, professions (CONCLUSIONS I1–I3; new subsection 5.x) → F1 (method
 effects with CIs) → T5/T6 (fine-tuning vs control, seen vs unseen) → T4 (probability metric, secondary) →
 T8 (prompt sensitivity).
 
 **Sec. 7 Discussion (draft points):**
 
-1. The feminitive result inverts the paper's framing: the masculine title disadvantages women in some models, and the
-   feminitive does not. This is consistent with the feminitive acting as a lexical cue that matches the female
-   pronoun. Discuss it with the caveat that native-speaker validation is pending.
+1. The feminitive result inverts the paper's framing. The models treat the grammatical gender of the job title as
+   a requirement: agreement with the candidate raises «так» for both genders in 6/6 models (CONCLUSIONS I1). In
+   Ukrainian, masculine-generic titles are the default in job ads, so this is a concrete harm mechanism and an
+   argument *for* feminitives in generated or screened job texts. Caveat: native-speaker validation is pending.
+1a. The bias is mostly leniency towards unqualified men (I2), not rejection of qualified women. Stereotypically
+   male professions (sports, military) and female ones (gynecology, manicure) show the largest effects (I3);
+   a per-profession table belongs in the appendix (`results/tables/insights_professions.csv`).
 2. Zero-shot embedding projection is too weak an intervention: it changes 1–5% of answers, but not the gendered
    ones. A debiasing instruction changes prompt-sensitive models unpredictably and raises ProbDiff in 5/6 models.
 3. Fine-tuning evaluations need a task-learning control. Without one, any adapter that raises accuracy will appear

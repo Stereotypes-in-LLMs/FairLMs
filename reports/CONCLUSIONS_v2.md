@@ -35,6 +35,57 @@ none/soft/hard (≤ 0.3%, man group).
     masculine job title is disadvantaged relative to a male one, while the feminitive form shifts the model towards
     «так» for her. The QADiff gap above measures *more flips*, not *more flips against women*.
 
+## 2a. New insights (not in the v1 paper)
+
+From `scripts/insights.py` (method `none`, `full`, «рибалка» excluded; cluster bootstrap B = 2000; tables
+`results/tables/insights_*.csv`).
+
+**I1. Grammatical agreement drives the answers.** For the same candidate, a job title whose grammatical gender
+matches the candidate raises the share of «так». The effect is significant in **6/6 models for both genders**:
+
+| model | woman: feminitive − base title | man: base − feminitive title |
+|---|---|---|
+| gemma-2-2b-it | +0.042 [+0.023, +0.060] | +0.066 [+0.046, +0.088] |
+| gemma-2-9b-it | +0.047 [+0.029, +0.068] | +0.045 [+0.024, +0.065] |
+| llama-3.1-8b-instruct | +0.016 [+0.004, +0.027] | +0.019 [+0.006, +0.033] |
+| llama-3.2-3b-instruct | +0.096 [+0.069, +0.124] | +0.167 [+0.135, +0.198] |
+| qwen2.5-3b-instruct | +0.050 [+0.030, +0.072] | +0.135 [+0.103, +0.170] |
+| qwen2.5-7b-instruct | +0.056 [+0.037, +0.076] | +0.063 [+0.034, +0.091] |
+
+(Δ share of «так»; the log-odds margin gives the same picture, +0.48 to +3.29.) This one mechanism explains
+all three comparisons in §2:
+* with a masculine title for both, only the man agrees → the man is favoured (`nofem`);
+* with a feminitive for the woman, both agree → the residual favours the woman slightly (`fem`);
+* with a feminitive for both, only the woman agrees → the largest gaps (`fem_form`, McNemar 2–7 vs 21–180,
+  always for the woman).
+
+The models therefore behave as if the job title's grammatical gender stated which gender the employer wants.
+For Ukrainian, a masculine generic job title is the default in job advertisements, so this is a concrete
+mechanism by which masculine-generic phrasing disadvantages female candidates. Mismatch is penalized more for men
+in 5/6 models (point estimates), but the man-with-feminitive pairing is itself unnatural (diagnostic only).
+
+**I2. Gender flips happen mostly when the candidate is unqualified.** QADiff on items with an irrelevant
+experience is 0.03–0.14, vs 0.003–0.10 on items with a relevant one (e.g. Gemma-2-9B, base-form titles: 0.078 vs 0.014;
+Qwen2.5-7B 0.080 vs 0.029). The direction of the flips also differs:
+* irrelevant experience, base-form title: the unqualified **man** gets «так» more often than the unqualified woman,
+  significantly in 5/6 models (net +0.020 to +0.075 of items; Llama-3.2-3B n.s.);
+* relevant experience: no significant net direction in any model.
+
+So the bias is mostly **leniency towards unqualified men**, not rejection of qualified women. Both are hiring
+harms, but they call for different fixes and the paper should name the first.
+
+**I3. Professions with the strongest effect follow occupational stereotypes** (mean man − woman margin over 6
+models, base-form titles; one experience pair per profession, so these are indicative and have no CI):
+* man favoured: basketball/football/hockey player, circus performer, mortar gunner, beekeeper, shepherd, director,
+  phthisiatrician (the only profession where 5/6 models flip in the man's favour);
+* woman favoured: mammologist, gynecologist, manicurist, obstetrician, assistant, accountant clerk («обліковець»).
+
+Across professions the effect is diffuse: 145/349 professions have a net flip in at least one model, the median
+has none, and 9 have a net man-favoured flip in ≥ 3 models (basketball, football, hockey player, boxer, circus
+performer, mortar gunner, phthisiatrician, oculist, spokesperson); no profession has a woman-favoured flip in ≥ 3. The aggregate QADiff therefore reflects many small item-level effects plus a
+stereotype-aligned tail, not a few outlier professions. «байкар» (woman favoured in 2 models) is an exception to the
+stereotype pattern and worth checking by annotators.
+
 ## 3. Zero-shot debiasing (F1, T7)
 
 * **Hard (proj-ext): no reduction.** ΔQADiff CI < 0 in 0/12 model × context cells. The v1 "18.9% average relative
@@ -98,6 +149,10 @@ none/soft/hard (≤ 0.3%, man group).
    effect is significant and in base-form contexts it favours men in 3–4/6 models.
 2. Feminitive job titles increase the number of gender-dependent answers in 4/6 models, but shift the answers
    towards «так» for the female candidate. They do not disadvantage her.
+2a. The common mechanism is grammatical agreement: a job title whose gender matches the candidate raises «так» in
+   6/6 models for both genders (I1), so masculine-generic titles disadvantage women.
+2b. The gender flips concentrate on unqualified candidates, where unqualified men are accepted more often (I2).
+   The most affected professions follow occupational stereotypes (I3).
 3. Embedding projection (soft/hard) and a debiasing prompt do not reduce gender disagreement reliably. The v1
    18.9% claim is withdrawn.
 4. LoRA fine-tuning reduces disagreement on unseen professions, but a male-only control reduces it equally. The

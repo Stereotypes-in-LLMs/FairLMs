@@ -93,7 +93,7 @@ prompt_variants() {
   done; done; done
 }
 
-stats() { $PY scripts/stats.py --B 2000; }
+stats() { $PY scripts/stats.py --B 2000 && $PY -m scripts.insights --B 2000; }
 
 case "${1:-}" in
   r0|pilot|zeroshot|finetune|ft_eval|ft_control|ft_control_eval|prompt_variants|stats) "$1" ;;

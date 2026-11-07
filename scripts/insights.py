@@ -3,7 +3,8 @@ Follow-up analyses of the zero-shot QA runs (method `none`, split `full`) that g
 
   A. grammatical-agreement effect: does a job title whose grammatical gender matches the candidate raise «так»?
   B. flips by item type (relevant vs irrelevant experience) and their direction;
-  C. professions with the most consistent gender effect across models.
+  C. professions with the most consistent gender effect across models;
+  D. how each mitigation method changes A and B (paired bootstrap vs `none`; fine-tuning on `test`, pooled over seeds).
 
 Writes results/tables/insights_*.csv and prints the tables. Usage: python -m scripts.insights [--B 2000]
 """
@@ -68,12 +69,54 @@ def professions(runs):
     return out.sort_values("margin_diff", ascending=False)
 
 
+MITIGATION_METRICS = ["yes_woman", "yes_man", "margin_woman", "margin_man",
+                      "net_man_nofem_irrelevant", "net_man_nofem_relevant", "net_man_fem_irrelevant",
+                      "net_man_fem_relevant", "qadiff_nofem_irrelevant", "qadiff_nofem_relevant",
+                      "qadiff_fem_irrelevant", "qadiff_fem_relevant"]
+
+
+def mitigation(all_runs, B):
+    """Value and paired difference vs `none` for every method. Zero-shot methods on `full`; ft/ftctrl on the test
+    professions, averaged over seeds (each replicate averages the seeds on the same resample)."""
+    fn = lambda w: {**agreement_metrics(w), **flip_metrics(w)}
+    rows = []
+    for model in sorted({k[0] for k in all_runs}):
+        qa = {(me, se, sp): w[~w.fem_identical.astype(bool)] for (mo, me, se, mt, sp), w in all_runs.items()
+              if mo == model and mt == "qa" and "@" not in me}
+        for scope, methods in (("full", ["prompt", "soft", "hard"]), ("test", ["ft", "ftctrl"])):
+            base = qa.get(("none", None, "full"))
+            if base is None:
+                continue
+            configs = {"none": base if scope == "full" else base[base.split == "test"]}
+            for (me, se, sp), w in qa.items():
+                if me in methods and (scope == "full" and se is None and sp == "full" or scope == "test" and se):
+                    configs[(me, se)] = w if scope == "full" else w[w.split == "test"]
+            if len(configs) < 2:
+                continue
+            point, reps = bootstrap(configs, fn, B)
+            for method in methods:
+                keys = [k for k in configs if k != "none" and k[0] == method]
+                if not keys:
+                    continue
+                for m in MITIGATION_METRICS:
+                    v = np.mean([point[k][m] for k in keys])
+                    r = np.mean([reps[k][m].to_numpy() for k in keys], axis=0)
+                    d = r - reps["none"][m].to_numpy()
+                    rows.append({"model": model, "scope": scope, "method": method, "metric": m, "value": v,
+                                 "none": point["none"][m], "delta": v - point["none"][m],
+                                 "lo": ci(d)[0], "hi": ci(d)[1]})
+    t = pd.DataFrame(rows)
+    t["cell"] = [f"{v:+.3f} (Δ {d:+.3f}{' *' if lo > 0 or hi < 0 else ''})"
+                 for v, d, lo, hi in zip(t.value, t.delta, t.lo, t.hi)]
+    return t
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--B", type=int, default=2000)
     a = ap.parse_args()
-    runs = {k: v for k, v in load_runs(ROOT / "results" / "raw").items()
-            if k[1] == "none" and k[2] is None and k[3] == "qa" and k[4] == "full"}
+    all_runs = load_runs(ROOT / "results" / "raw")
+    runs = {k: v for k, v in all_runs.items() if k[1] == "none" and k[2] is None and k[3] == "qa" and k[4] == "full"}
     out = ROOT / "results" / "tables"
     agree = boot_table(runs, agreement_metrics, a.B)
     flips = boot_table(runs, flip_metrics, a.B)
@@ -81,11 +124,16 @@ def main():
     agree.to_csv(out / "insights_agreement.csv", index=False)
     flips.to_csv(out / "insights_flips_by_relevance.csv", index=False)
     prof.to_csv(out / "insights_professions.csv", index=False)
+    mit = mitigation(all_runs, a.B)
+    mit.to_csv(out / "insights_mitigation.csv", index=False)
     pd.set_option("display.width", 250)
     print(agree.pivot(index="model", columns="metric", values="cell").to_string())
     print(flips.pivot(index="model", columns="metric", values="cell").T.to_string())
     print(prof.head(15).to_string(index=False))
     print(prof.tail(15).to_string(index=False))
+    for scope in ("full", "test"):
+        print(mit[mit.scope == scope].pivot_table(index=["model", "method"], columns="metric", values="cell",
+                                                  aggfunc="first")[MITIGATION_METRICS].T.to_string())
     print("models with net man-favoured flips per profession:",
           (prof.models_man - prof.models_woman).describe().round(2).to_dict())
 

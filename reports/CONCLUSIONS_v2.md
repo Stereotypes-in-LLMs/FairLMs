@@ -123,6 +123,44 @@ stereotype pattern and worth checking by annotators.
 * Seeds differ noticeably (Qwen2.5-3B ft QADiff on unseen professions: 0.037–0.086 with feminitives), so single-seed
   fine-tuning results are not reliable.
 
+## 4a. Mitigation through the lens of I1–I2
+
+From `scripts/insights.py` → `results/tables/insights_mitigation.csv`: the agreement effect (I1) and directional
+flips by relevance (I2) for every method, paired bootstrap difference vs `none` (zero-shot on `full`; ft/ftctrl on
+`test`, averaged over 3 seeds, compared with `none` on the same professions).
+
+**M1. No zero-shot method removes the agreement effect.** It stays positive in 36/36 model × method × gender cells;
+the mean over models is 0.067 for `none`, 0.063 for hard, 0.065 for soft and 0.073 for prompt. It decreases
+significantly in only 3/36 cells (hard: Llama-3.2-3B woman −0.043, Gemma-2-2B man −0.019; prompt: Gemma-2-9B man
+−0.034). It increases significantly in 2 (prompt, man: Llama-3.2-3B +0.037, Qwen2.5-7B +0.036), and hard *raises* the
+woman's margin effect for both Qwen models (+0.42, +0.45). Hard projection removes the gender subspace from the input
+embeddings of the profession, candidate and pronoun tokens, yet the title-gender cue survives. The cue is therefore
+carried beyond the 5-direction input-embedding subspace (e.g. by the feminitive suffix tokens once contextualized),
+so input-embedding projection works at the wrong level for a morphological cue.
+
+**M2. Only the prompt touches the leniency towards unqualified men**, in 2/6 models: Gemma-2-9B (net +0.055 →
+0.000) and Llama-3.1-8B (+0.021 → −0.011). For Gemma-2-9B this coincides with F1 −0.05 and more «так» overall
+(§3), so it is not a targeted fix. Hard and soft change it in no model.
+
+**M3. Fine-tuning weakens the agreement effect, and the male-only control does so equally.** In both arms the effect
+drops significantly in 5/6 cells (share of «так») and 6/6 (margin): e.g. Llama-3.2-3B man 0.144 → 0.057 (ft) /
+0.055 (control); Gemma-2-2B woman 0.040 → −0.008 / 0.009. The control never saw a woman or a feminitive. Learning to
+judge the experience makes the model rely less on the form of the title, without any gendered data.
+
+**M4. What fine-tuning removes is mostly the advantage of the woman with a feminitive, not the male advantage.**
+* Woman with feminitive vs man with base title: the woman's advantage disappears. Net man-favoured flips rise to
+  ≈ 0 (Gemma-2-2B unqualified −0.052 → 0.000, Llama-3.2-3B −0.103 → −0.002; significant), and for Qwen2.5-3B they turn
+  positive (+0.021 in both item types).
+* Base-form titles, unqualified candidates: the man's advantage is not reduced significantly in any model
+  (Qwen2.5-3B: +0.086 → +0.050 / +0.042, n.s.).
+* Qwen2.5-3B, qualified candidates: after fine-tuning (both arms), almost all remaining gender flips favour the man
+  (net +0.052 / +0.054 vs +0.017 before, significant). QADiff on these items barely changes (0.056).
+
+So a lower QADiff after fine-tuning does not mean fairer outcomes for women. Part of the reduction is the removal of a
+pro-female effect, and for one model the residual flips become more male-favouring. QADiff is symmetric and cannot
+show this, so mitigation must be reported with directional metrics (net flips / McNemar b vs c, margin_diff).
+Caveats: 174 test professions, 3 small models, and the Qwen2.5-3B overall QADiff change is itself not significant.
+
 ## 5. Probability metric (T4)
 
 * Prompt debiasing **increases** ProbDiff for 5/6 models (e.g. Qwen2.5-3B 0.007 → 0.041 with feminitives). The debias
@@ -157,6 +195,9 @@ stereotype pattern and worth checking by annotators.
    18.9% claim is withdrawn.
 4. LoRA fine-tuning reduces disagreement on unseen professions, but a male-only control reduces it equally. The
    gain comes from learning the task; a gender-specific effect is visible only in Gemma-2-2B's margin gap.
+4a. No zero-shot method removes the agreement cue (M1). Fine-tuning weakens it, through task learning (M3).
+   But the QADiff reduction after fine-tuning mainly removes the advantage of women with feminitive titles, while
+   the advantage of unqualified men remains (M4). Mitigation must be evaluated with directional metrics.
 5. Results depend on the instruction wording at the ±0.04 level, and small models can become degenerate.
 
 ## 8. Open caveats

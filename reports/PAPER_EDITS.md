@@ -147,7 +147,8 @@ Reference fixes:
 > masculine-generic title disadvantages women and a feminitive title favours them. Most gender-dependent answers
 > concern unqualified candidates, where unqualified men are accepted more often than unqualified women. Neither embedding projection nor a debiasing instruction reduces gender disagreement reliably. LoRA
 > fine-tuning reduces it on unseen professions, but a control adapter trained on male examples only reduces it
-> equally, so the improvement reflects task learning rather than debiasing. We release the data with a
+> equally, so the improvement reflects task learning rather than debiasing; it mainly removes the advantage that
+> feminitive titles gave women, while unqualified men keep theirs. We release the data with a
 > profession-level split, the code, and 95% bootstrap confidence intervals for every result.
 
 **Sec. 5 Results (structure):** T2 (quality, degenerate check) → T3 + margin/McNemar (bias, direction) →
@@ -166,6 +167,10 @@ T8 (prompt sensitivity).
    a per-profession table belongs in the appendix (`results/tables/insights_professions.csv`).
 2. Zero-shot embedding projection is too weak an intervention: it changes 1–5% of answers, but not the gendered
    ones. A debiasing instruction changes prompt-sensitive models unpredictably and raises ProbDiff in 5/6 models.
+2a. Embedding projection leaves the title-gender cue intact in 36/36 cells (CONCLUSIONS M1). The cue is
+   morphological and contextual, not a direction in the input embeddings of a few tokens.
+2b. Lower QADiff is not the same as fairer to women: after fine-tuning, the reduction mostly removes the
+   feminitive advantage of women, while unqualified men keep theirs (M4). Report b vs c / margin_diff for every method.
 3. Fine-tuning evaluations need a task-learning control. Without one, any adapter that raises accuracy will appear
    to debias, because QADiff → 0 as accuracy → 1.
 4. Report the threshold-free margin alongside QADiff: QADiff hides direction and saturates near degenerate or very

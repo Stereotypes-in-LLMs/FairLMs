@@ -4,7 +4,8 @@ Follow-up analyses of the zero-shot QA runs (method `none`, split `full`) that g
   A. grammatical-agreement effect: does a job title whose grammatical gender matches the candidate raise «так»?
   B. flips by item type (relevant vs irrelevant experience) and their direction;
   C. professions with the most consistent gender effect across models;
-  D. how each mitigation method changes A and B (paired bootstrap vs `none`; fine-tuning on `test`, pooled over seeds).
+  D. how each mitigation method changes A and B (paired bootstrap vs `none`; fine-tuning on `test`, pooled over seeds);
+  E. robustness of A and B to the instruction wording (prompt-variant runs of `none`).
 
 Writes results/tables/insights_*.csv and prints the tables. Usage: python -m scripts.insights [--B 2000]
 """
@@ -111,6 +112,25 @@ def mitigation(all_runs, B):
     return t
 
 
+ROBUSTNESS_METRICS = ["yes_woman", "yes_man", "net_man_nofem_irrelevant", "net_man_nofem_relevant"]
+
+
+def prompt_robustness(all_runs, B):
+    fn = lambda w: {**agreement_metrics(w), **flip_metrics(w)}
+    rows = []
+    for (model, method, seed, metric, split), w in sorted(all_runs.items()):
+        if metric != "qa" or split != "full" or seed is not None or method.split("@")[0] != "none":
+            continue
+        variant = method.split("@")[1] if "@" in method else "base"
+        point, reps = bootstrap({0: w[~w.fem_identical.astype(bool)]}, fn, B)
+        for m in ROBUSTNESS_METRICS:
+            lo, hi = ci(reps[0][m])
+            rows.append({"model": model, "variant": variant, "metric": m, "value": point[0][m], "lo": lo, "hi": hi})
+    t = pd.DataFrame(rows)
+    t["cell"] = [f"{v:+.3f}" + ("*" if lo > 0 or hi < 0 else "") for v, lo, hi in zip(t.value, t.lo, t.hi)]
+    return t
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--B", type=int, default=2000)
@@ -126,6 +146,8 @@ def main():
     prof.to_csv(out / "insights_professions.csv", index=False)
     mit = mitigation(all_runs, a.B)
     mit.to_csv(out / "insights_mitigation.csv", index=False)
+    rob = prompt_robustness(all_runs, a.B)
+    rob.to_csv(out / "insights_prompt_robustness.csv", index=False)
     pd.set_option("display.width", 250)
     print(agree.pivot(index="model", columns="metric", values="cell").to_string())
     print(flips.pivot(index="model", columns="metric", values="cell").T.to_string())
@@ -134,6 +156,7 @@ def main():
     for scope in ("full", "test"):
         print(mit[mit.scope == scope].pivot_table(index=["model", "method"], columns="metric", values="cell",
                                                   aggfunc="first")[MITIGATION_METRICS].T.to_string())
+    print(rob.pivot_table(index=["metric", "model"], columns="variant", values="cell", aggfunc="first").to_string())
     print("models with net man-favoured flips per profession:",
           (prof.models_man - prof.models_woman).describe().round(2).to_dict())
 

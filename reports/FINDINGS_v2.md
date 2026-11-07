@@ -149,7 +149,10 @@ what was wrong in v1: [AUDIT_v1.md](AUDIT_v1.md).
   that.
 * **Caveat.** The man-with-feminitive sentences are grammatically unnatural, so the "man" column partly measures a
   reaction to an odd sentence. The "woman" column has no such problem.
-* **Source.** `scripts/insights.py` → `results/tables/insights_agreement.csv`, `insights_prompt_robustness.csv`.
+* **Source.** `scripts/insights.py` → `results/tables/insights_agreement.csv`, `insights_prompt_robustness.csv`;
+  figure `results/figures/F5_agreement_effect.pdf`.
+
+![F5](../results/figures/F5_agreement_effect.png)
 
 ### F7. The direction of the bias depends on the title form (B)
 * **Masculine title for both (`nofem`).** When the answers differ, the man gets «так».
@@ -180,7 +183,10 @@ what was wrong in v1: [AUDIT_v1.md](AUDIT_v1.md).
   * Qualified: no consistent direction (5 significant towards the man, 2 towards the woman).
 * **Consequence.** The harm is "unqualified men pass more often", not "qualified women are rejected". The two need
   different fixes.
-* **Source.** `insights_flips_by_relevance.csv`, `insights_prompt_robustness.csv`.
+* **Source.** `insights_flips_by_relevance.csv`, `insights_prompt_robustness.csv`; figure
+  `results/figures/F6_flips_by_qualification.pdf`.
+
+![F6](../results/figures/F6_flips_by_qualification.png)
 
 ### F10. The most affected professions follow occupational stereotypes (C)
 * **Man favoured** (mean margin over 6 models, masculine title): basketball, football and hockey players, circus
@@ -250,7 +256,9 @@ what was wrong in v1: [AUDIT_v1.md](AUDIT_v1.md).
   vs +0.017 before, significant), while QADiff on these items is unchanged.
 * **Consequence.** Part of the QADiff "debiasing" is the removal of a pro-female effect. Only directional metrics
   show this.
-* **Source.** `insights_mitigation.csv`.
+* **Source.** `insights_mitigation.csv`; figure `results/figures/F7_direction_after_finetuning.pdf`.
+
+![F7](../results/figures/F7_direction_after_finetuning.png)
 
 ### F16. Does gender-balanced data help beyond the control? Only for Gemma-2-2B (C)
 * The absolute man − woman margin gap is smaller for the gender-balanced adapter than for the control in 6/6 cells
@@ -315,8 +323,15 @@ what was wrong in v1: [AUDIT_v1.md](AUDIT_v1.md).
   4. Open questions (F16).
 * **How to cite a number.** Use the point estimate and the 95% cluster-bootstrap CI over professions, e.g.
   "QADiff 0.124 [0.098, 0.149]". Report method effects as paired differences.
-* **Tables and figures to reuse.** RESULTS_v2 T2, T3 (+ margin, McNemar), F1 forest plot, T5, T8;
-  `results/tables/insights_*.csv` for F6, F9 and F15 (make figures from these).
+* **Tables and figures to reuse.** RESULTS_v2 T2, T3 (+ margin, McNemar), T5, T8 (LaTeX versions in
+  `results/tables/T*.tex`); figures in `results/figures/` (PDF for the thesis, PNG for previews):
+  * F1 `F1_forest_delta_qadiff`: method effects on QADiff (F11–F13)
+  * F2 `F2_yes_rate`: yes-rate per configuration, degenerate check (F3)
+  * F3 `F3_fem_gap`: feminitive − masculine QADiff gap (F8)
+  * F4 `F4_seen_unseen`: seen vs unseen professions after fine-tuning (F17)
+  * F5 `F5_agreement_effect`: agreement effect with instruction variants (F6)
+  * F6 `F6_flips_by_qualification`: direction of flips, unqualified vs qualified (F7, F9)
+  * F7 `F7_direction_after_finetuning`: direction before and after fine-tuning (F15)
 * **Reproduce:** `scripts/run_all.sh stats`, which runs `scripts/stats.py` and `scripts/insights.py` from
   `results/raw` in about 6 minutes on CPU.
 

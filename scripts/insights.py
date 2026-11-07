@@ -14,7 +14,7 @@ import argparse
 import numpy as np
 import pandas as pd
 
-from scripts.stats import ROOT, bootstrap, ci, load_runs
+from scripts.stats import METHOD_STYLE, ROOT, bootstrap, ci, load_runs
 
 AGREEMENT = {  # name: (agreeing group, disagreeing group) for the same candidate
     "woman": ("woman_fem", "woman_nofem"),
@@ -131,6 +131,92 @@ def prompt_robustness(all_runs, B):
     return t
 
 
+NOFEM, FEM, INK = "#2a78d6", "#eb6834", "#333333"
+
+
+def figures(rob, flips, mit, out):
+    """F5 agreement effect (+ instruction variants), F6 net flips by qualification, F7 direction after fine-tuning."""
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+    out.mkdir(parents=True, exist_ok=True)
+    plt.rcParams.update({"font.size": 9, "axes.spines.top": False, "axes.spines.right": False,
+                         "axes.edgecolor": "#888", "axes.grid": True, "grid.color": "#e5e5e5"})
+
+    def rows_axis(ax, models):
+        ax.set_yticks(range(len(models)), models)
+        ax.set_ylim(len(models) - 0.5, -0.5)
+        ax.grid(axis="y", visible=False)
+        ax.axvline(0, color="#555", lw=1)
+
+    def save(fig, name):
+        handles, labels = fig.axes[0].get_legend_handles_labels()
+        fig.legend(handles, labels, loc="lower center", ncol=len(labels), frameon=False)
+        fig.tight_layout(rect=(0, 0.1, 1, 1))
+        fig.savefig(out / f"{name}.pdf", metadata={"CreationDate": None})
+        fig.savefig(out / f"{name}.png", dpi=150)
+        plt.close(fig)
+
+    models = sorted(rob.model.unique())
+    fig, axes = plt.subplots(1, 2, figsize=(9, 1.6 + 0.6 * len(models)), sharey=True)
+    for ax, (metric, title) in zip(axes, [("yes_woman", "Woman: feminitive − masculine title"),
+                                          ("yes_man", "Man: masculine − feminitive title")]):
+        for y, model in enumerate(models):
+            d = rob[(rob.model == model) & (rob.metric == metric)]
+            var = d[d.variant != "base"]
+            ax.plot(var.value, [y + 0.18] * len(var), "o", mfc="none", mec="#999", ms=6,
+                    label="other instructions" if y == 0 else None)
+            b = d[d.variant == "base"].iloc[0]
+            ax.plot([b.lo, b.hi], [y, y], color=INK, lw=2, solid_capstyle="round")
+            ax.plot(b.value, y, "o", color=INK, ms=7, mec="white", mew=1.5,
+                    label="main instruction (95% CI)" if y == 0 else None)
+        rows_axis(ax, models)
+        ax.set_title(title)
+        ax.set_xlabel("Δ share of «так» when the title agrees with the candidate")
+    save(fig, "F5_agreement_effect")
+
+    fig, axes = plt.subplots(1, 2, figsize=(9, 1.6 + 0.6 * len(models)), sharey=True)
+    for ax, (rel, title) in zip(axes, [("irrelevant", "Unqualified candidate (irrelevant experience)"),
+                                       ("relevant", "Qualified candidate (relevant experience)")]):
+        for y, model in enumerate(models):
+            for k, (comp, color, label) in enumerate([("nofem", NOFEM, "both masculine title"),
+                                                      ("fem", FEM, "woman with feminitive")]):
+                r = flips[(flips.model == model) & (flips.metric == f"net_man_{comp}_{rel}")].iloc[0]
+                yy = y + (k - 0.5) * 0.25
+                ax.plot([r.lo, r.hi], [yy, yy], color=color, lw=2, solid_capstyle="round")
+                ax.plot(r.value, yy, "o", color=color, ms=7, mec="white", mew=1.5, label=label if y == 0 else None)
+        rows_axis(ax, models)
+        ax.set_title(title)
+        ax.set_xlabel("net flips (> 0: man favoured; 95% CI)")
+    save(fig, "F6_flips_by_qualification")
+
+    m = mit[mit.scope == "test"]
+    ft_models = sorted(m.model.unique())
+    panels = [("net_man_nofem_irrelevant", "Masculine title, unqualified"),
+              ("net_man_nofem_relevant", "Masculine title, qualified"),
+              ("net_man_fem_irrelevant", "Woman with feminitive, unqualified"),
+              ("net_man_fem_relevant", "Woman with feminitive, qualified")]
+    fig, axes = plt.subplots(2, 2, figsize=(9, 2.2 + 1.2 * len(ft_models)), sharey=True)
+    styles = [("none", INK, "o", "no debiasing")] + [(k, *METHOD_STYLE[k], lab) for k, lab in
+                                                     [("ft", "fine-tuned"), ("ftctrl", "male-only control")]]
+    for ax, (metric, title) in zip(axes.flat, panels):
+        for y, model in enumerate(ft_models):
+            d = m[(m.model == model) & (m.metric == metric)].set_index("method")
+            for k, (method, color, marker, label) in enumerate(styles):
+                v = d.none.iloc[0] if method == "none" else d.value[method]
+                sig = method == "none" or d.lo[method] > 0 or d.hi[method] < 0
+                ax.plot(v, y + (k - 1) * 0.2, marker, color=color, ms=7, mec=color, mfc=color if sig else "white",
+                        mew=1.5)
+        rows_axis(ax, ft_models)
+        ax.set_title(title)
+        ax.set_xlabel("net flips (> 0: man favoured)")
+    for method, color, marker, label in styles:  # legend in the filled style, independent of the first row
+        axes.flat[0].plot([], [], marker, color=color, ms=7, label=label)
+    fig.text(0.5, 0.06, "hollow marker: change vs no debiasing not significant (paired 95% CI)", ha="center",
+             color="#555")
+    save(fig, "F7_direction_after_finetuning")
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--B", type=int, default=2000)
@@ -148,6 +234,7 @@ def main():
     mit.to_csv(out / "insights_mitigation.csv", index=False)
     rob = prompt_robustness(all_runs, a.B)
     rob.to_csv(out / "insights_prompt_robustness.csv", index=False)
+    figures(rob, flips, mit, ROOT / "results" / "figures")
     pd.set_option("display.width", 250)
     print(agree.pivot(index="model", columns="metric", values="cell").to_string())
     print(flips.pivot(index="model", columns="metric", values="cell").T.to_string())

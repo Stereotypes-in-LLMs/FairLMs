@@ -316,7 +316,7 @@ def figures(est, diffs, mem, out):
             ax.set_xlabel(xlabel)
             rows_axis(ax, models)
         bottom_legend(fig, axes[0])
-        fig.savefig(path)
+        fig.savefig(path, metadata={"CreationDate": None})
         fig.savefig(path.with_suffix(".png"), dpi=150)
         plt.close(fig)
 
@@ -346,7 +346,7 @@ def figures(est, diffs, mem, out):
         rows_axis(ax, models)
         ax.set_xlabel("QADiff(fem) − QADiff(non-fem), 95% CI")
         bottom_legend(fig, ax)
-        fig.savefig(out / "F3_fem_gap.pdf")
+        fig.savefig(out / "F3_fem_gap.pdf", metadata={"CreationDate": None})
         fig.savefig(out / "F3_fem_gap.png", dpi=150)
         plt.close(fig)
 
@@ -369,7 +369,7 @@ def figures(est, diffs, mem, out):
         rows_axis(ax, models)
         ax.set_xlabel("share of «так» (man, non-feminitive); shaded = degenerate (<0.05 or >0.95)")
         bottom_legend(fig, ax)
-        fig.savefig(out / "F2_yes_rate.pdf")
+        fig.savefig(out / "F2_yes_rate.pdf", metadata={"CreationDate": None})
         fig.savefig(out / "F2_yes_rate.png", dpi=150)
         plt.close(fig)
 
@@ -387,7 +387,7 @@ def figures(est, diffs, mem, out):
             ax.set_title(label)
         axes[0].legend(frameon=False, fontsize=7)
         fig.tight_layout()
-        fig.savefig(out / "F4_seen_unseen.pdf")
+        fig.savefig(out / "F4_seen_unseen.pdf", metadata={"CreationDate": None})
         fig.savefig(out / "F4_seen_unseen.png", dpi=150)
         plt.close(fig)
 

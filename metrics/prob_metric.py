@@ -1,251 +1,98 @@
-from pydantic import BaseModel
-from tqdm import tqdm
-import pandas as pd
-from typing import Any
-import numpy as np
+"""
+Probability protocol (v2).
+
+Each prob-dataset sentence gives two variants: positive ("BLANK " -> "") and negated ("BLANK " -> "не ").
+Every variant is scored as a whole sentence, conditioned on a document-start token (BOS if the tokenizer
+has one, otherwise <|endoftext|>/EOS, as in lm-evaluation-harness) and, for the prompt method, on the
+debias phrase; only the sentence tokens are scored. v1 fed the literal text "<s>" as the start token
+(not a BOS for Qwen/Gemma) and, for the prompt method, read the logits at the prompt positions instead
+of the sentence positions.
+
+To keep the v1 ProbDiffMetric formula, `pad` EOS tokens are appended after the sentence, where `pad`
+is the largest length difference to any gender variant of the same item; their log-probs are stored
+separately so both padded (v1) and unpadded scores can be computed offline (metrics/scores.py).
+ProbAcc/ProbAgree decide positive vs negated by total sentence log-prob (see metrics/scores.prob_metrics).
+"""
 import json
+
+import pandas as pd
 import torch
-from utils import TokensDebiasType
+from tqdm import tqdm
 
-class Sentence(BaseModel):
-    """ Wrapper class for a sentence. """
-    sentence: str
-    profession: str
-    experience: str
-    is_male: bool
-    is_correct: bool
-    is_feminitive: bool
-
-class DiffEvaluator(BaseModel):
-    """ Probability Evaluator """
-    tokenizer: Any
-    model: Any
-    sentences_man_no_feminitive: list[Sentence] = None
-    sentences_woman_no_feminitive: list[Sentence] = None
-
-    sentences_man_feminitive: list[Sentence] = None
-    sentences_woman_feminitive: list[Sentence] = None
-
-    sentences_man_no_feminitive_relevant: list[Sentence] = None
-    sentences_man_no_feminitive_irrelevant: list[Sentence] = None
-    
-    sentences_woman_feminitive_relevant: list[Sentence] = None
-    sentences_woman_feminitive_irrelevant: list[Sentence] = None
-
-    sentences_woman_no_feminitive_relevant: list[Sentence] = None
-    sentences_woman_no_feminitive_irrelevant: list[Sentence] = None
-    
-    UNCONDITIONAL_START_TOKEN: str = "<s>"
-    device: str = "cuda"
-    output_file: str = "model_output.json"
-    dataset_percentage: float = 0.01
+VARIANTS = {"pos": "", "neg": "не "}
 
 
-    def compute_sentence_probability(self, sentence: str, number_eos = 0):
-        """ Computes sentence probability
-        sentence (str): Sentence to find probability for.
-        """
-        initial_token_probabilities = self.model(self.UNCONDITIONAL_START_TOKEN, token_debias_type = TokensDebiasType.NONE).logits
-        initial_token_probabilities = torch.softmax(
-            initial_token_probabilities[0], dim=-1)
-
-        tokens = self.tokenizer(sentence)["input_ids"] + number_eos * self.tokenizer(self.tokenizer.eos_token)["input_ids"]
-        joint_sentence_probability = [
-            initial_token_probabilities[-1, tokens[0]].item()]
-
-        output = torch.softmax(self.model(sentence, token_debias_type = TokensDebiasType.FIRST_SENTENCE_WORD, number_eos = number_eos).logits[0], dim=-1)
-        
-        for idx in range(1, len(tokens)):
-            joint_sentence_probability.append(
-                output[idx-1, tokens[idx]].item() + 1e-12)
-
-        assert len(tokens) == len(joint_sentence_probability)
-
-        score = np.sum([np.log2(i)
-                        for i in joint_sentence_probability])
-        score /= len(joint_sentence_probability)
-        score = np.power(2, score)
-        return score
+def doc_prefix_id(tokenizer):
+    if tokenizer.bos_token_id is not None:
+        return tokenizer.bos_token_id
+    eot = tokenizer.convert_tokens_to_ids("<|endoftext|>")
+    if isinstance(eot, int) and eot != tokenizer.unk_token_id:
+        return eot
+    return tokenizer.eos_token_id
 
 
-    def __init__(self, file_path, *args, **kwargs):
-        """ Inits evaluator with sentences from file passed. """
+class ProbEvaluator:
+    def __init__(self, wrapper, batch_size=16):
+        self.wrapper, self.tok = wrapper, wrapper.tokenizer
+        self.batch_size = batch_size
+        self.prefix_id = doc_prefix_id(self.tok)
 
-        super().__init__(*args, **kwargs)
-        df = pd.read_csv(file_path)
+    def encode(self, sentence, job_form):
+        text = self.wrapper.with_prompt(sentence)
+        ids, offsets, debias_idx = self.wrapper.encode(text, job_form, sentence)
+        start = text.rindex(sentence)
+        # First token that belongs to the sentence (may include the separating space).
+        first = next(i for i, (s, e) in enumerate(offsets) if e > start)
+        shift = 1  # the prefix token
+        return [self.prefix_id] + ids, first + shift, [p + shift for p in debias_idx]
 
-        
-        df_man_no_feminitive = df[(df["is_male"] == True) & (df["is_feminitive"] == False)]
-        df_man_no_feminitive = df_man_no_feminitive.sort_values(by=['profession', 'is_correct', 'experience'])
-        self.sentences_man_no_feminitive = list(
-            df_man_no_feminitive.apply(lambda row: Sentence(**row.to_dict()), axis=1))
+    def score_batch(self, items):
+        T = max(len(it["ids"]) + it["pad"] for it in items)
+        eos = self.tok.eos_token_id
+        ids = torch.full((len(items), T), eos, dtype=torch.long)
+        mask = torch.zeros((len(items), T), dtype=torch.long)
+        for i, it in enumerate(items):
+            seq = it["ids"] + [eos] * it["pad"]
+            ids[i, :len(seq)] = torch.tensor(seq)
+            mask[i, :len(seq)] = 1
+        logits = self.wrapper.forward(ids, mask, [it["debias_idx"] for it in items]).logits.float()
+        logprobs = torch.log_softmax(logits[:, :-1], dim=-1)
+        target_lp = logprobs.gather(-1, ids[:, 1:].to(logprobs.device).unsqueeze(-1)).squeeze(-1).cpu()
+        out = []
+        for i, it in enumerate(items):
+            n = len(it["ids"])
+            lp = target_lp[i]
+            # token at position p is predicted at p-1
+            out.append({"token_logprobs": lp[it["first"] - 1:n - 1].tolist(),
+                        "eos_logprobs": lp[n - 1:n - 1 + it["pad"]].tolist()})
+        return out
 
+    def run(self, df: pd.DataFrame, out_path, meta: dict):
+        items = []
+        for r in df.itertuples():
+            for variant, fill in VARIANTS.items():
+                sentence = r.sentence.replace("BLANK ", fill)
+                ids, first, debias_idx = self.encode(sentence, r.job_form)
+                items.append({"row_id": r.row_id, "item_id": r.item_id, "variant": variant, "sentence": sentence,
+                              "ids": ids, "first": first, "debias_idx": debias_idx,
+                              "n_tokens": len(ids) - first,
+                              "record": {"profession": r.profession, "group": r.group,
+                                         "is_correct": bool(r.is_correct), "fem_identical": bool(r.fem_identical),
+                                         "split": r.split}})
+        # pad = max length difference to the other gender variants of the same item and variant
+        longest = {}
+        for it in items:
+            key = (it["item_id"], it["variant"])
+            longest[key] = max(longest.get(key, 0), it["n_tokens"])
+        for it in items:
+            it["pad"] = longest[(it["item_id"], it["variant"])] - it["n_tokens"]
 
-        
-        df_woman_no_feminitive = df[(df["is_male"] == False) & (df["is_feminitive"] == False)]
-        df_woman_no_feminitive = df_woman_no_feminitive.sort_values(by=['profession', 'is_correct', 'experience'])
-        self.sentences_woman_no_feminitive = list(
-            df_woman_no_feminitive.apply(lambda row: Sentence(**row.to_dict()), axis=1))
-
-
-        
-        df_man_feminitive = df[(df["is_male"] == True) & (df["is_feminitive"] == True)]
-        df_man_feminitive = df_man_feminitive.sort_values(by=['profession', 'is_correct', 'experience'])
-        self.sentences_man_feminitive = list(
-            df_man_feminitive.apply(lambda row: Sentence(**row.to_dict()), axis=1))
-
-
-        
-        df_woman_feminitive = df[(df["is_male"] == False) & (df["is_feminitive"] == True)]
-        df_woman_feminitive = df_woman_feminitive.sort_values(by=['profession', 'is_correct', 'experience'])
-        self.sentences_woman_feminitive = list(
-            df_woman_feminitive.apply(lambda row: Sentence(**row.to_dict()), axis=1))
-        
-        
-        assert all([(sentence_man.profession == sentence_woman.profession and
-                    sentence_man.experience == sentence_woman.experience and
-                    sentence_man.is_correct == sentence_woman.is_correct and
-                    sentence_man.is_feminitive == sentence_woman.is_feminitive and
-                    sentence_man.is_male != sentence_woman.is_male)  for sentence_man, sentence_woman in zip(self.sentences_man_no_feminitive, self.sentences_woman_no_feminitive)]), "Data is not symmetric, it is critical"
-
-        assert all([(sentence_man.profession == sentence_woman.profession and
-                    sentence_man.experience == sentence_woman.experience and
-                    sentence_man.is_correct == sentence_woman.is_correct and
-                    sentence_man.is_feminitive != sentence_woman.is_feminitive and
-                    sentence_man.is_male != sentence_woman.is_male)  for sentence_man, sentence_woman in zip(self.sentences_man_no_feminitive, self.sentences_woman_feminitive)]), "Data is not symmetric, it is critical"
-        
-
-    def compute_difference(self, man_sentences: list[Sentence], woman_sentences: list[Sentence]) -> float:
-        """ Computes f1 score on list of sentences (difference between predictions man and woman)
-
-        sentences (list[Sentence]): List of sentences to find f1 score on.
-        """
-        prob_man_no = []
-        prob_man = []
-        prob_woman_no = []
-        prob_woman = []
-
-        man_labels = []
-        woman_labels = []
-        
-        for sentence_man, sentence_woman in tqdm(list(zip(man_sentences[:int(self.dataset_percentage * len(man_sentences))], woman_sentences[:int(self.dataset_percentage * len(woman_sentences))]))):
-            sentence_man_data = sentence_man.sentence.replace("BLANK ", "")
-            sentence_woman_data = sentence_woman.sentence.replace("BLANK ", "")
-
-            tokens_man_len = len(self.tokenizer(sentence_man_data)["input_ids"])
-            tokens_woman_len = len(self.tokenizer(sentence_woman_data)["input_ids"])
-            
-            max_tokens_len = max(tokens_man_len, tokens_woman_len)
-            
-            prob_has_position_man = self.compute_sentence_probability(sentence_man_data, max_tokens_len - tokens_man_len)
-            prob_has_position_woman = self.compute_sentence_probability(sentence_woman_data, max_tokens_len - tokens_woman_len)
-
-            prob_man.append(prob_has_position_man)
-            prob_woman.append(prob_has_position_woman)
-
-            # Negative context
-
-            sentence_man_data_no = sentence_man.sentence.replace("BLANK ", "не ")
-            sentence_woman_data_no = sentence_woman.sentence.replace("BLANK ", "не ")
-
-            tokens_man_len_no = len(self.tokenizer(sentence_man_data_no)["input_ids"])
-            tokens_woman_len_no = len(self.tokenizer(sentence_woman_data_no)["input_ids"])
-            max_tokens_len_no = max(tokens_man_len_no, tokens_woman_len_no)
-            
-            prob_has_no_position_man = self.compute_sentence_probability(sentence_man_data_no, max_tokens_len_no - tokens_man_len_no)
-            prob_has_no_position_woman = self.compute_sentence_probability(sentence_woman_data_no, max_tokens_len_no - tokens_woman_len_no)
-
-            prob_man_no.append(prob_has_no_position_man)
-            prob_woman_no.append(prob_has_no_position_woman)
-
-            if prob_has_position_man > prob_has_no_position_man:
-                man_labels.append(1)
-            else:
-                man_labels.append(0)
-
-            if prob_has_position_woman > prob_has_no_position_woman:
-                woman_labels.append(1)
-            else:
-                woman_labels.append(0)
-                
-        
-        diff_has = []
-        diff_not = []
-
-        assert len(prob_man) == len(prob_woman)
-        assert len(prob_man_no) == len(prob_woman_no)
-        assert len(prob_man) == len(prob_man_no)
-        assert len(prob_woman) == len(prob_woman_no)
-        
-        for i in range(len(prob_man)):
-            diff_has.append(abs(prob_man[i] - prob_woman[i]))
-            diff_not.append(abs(prob_man_no[i] - prob_woman_no[i]))
-
-        mean_diff_has = np.mean(diff_has) if diff_has else 0
-        mean_diff_not = np.mean(diff_not) if diff_not else 0
-
-        std_diff_has = np.std(diff_has) if diff_has else 0
-        std_diff_not = np.std(diff_not) if diff_not else 0
-
-        assert len(woman_labels) == len(man_labels)
-        _acc = np.sum(np.array(man_labels) ==  np.array(woman_labels)) / len(woman_labels)
-        
-        return mean_diff_has, mean_diff_not, std_diff_has, std_diff_not, _acc
-        
-    def compute_probacc_man_woman(self, man_sentences: list[Sentence], woman_sentences: list[Sentence]) -> float:
-        """ Computes f1 score on list of sentences (difference between predictions man and woman)
-
-        sentences (list[Sentence]): List of sentences to find f1 score on.
-        """
-        man_labels = []
-        woman_labels = []
-
-        for sentence in tqdm(man_sentences[:int(self.dataset_percentage * len(man_sentences))]):
-            prob_has_position = self.compute_sentence_probability(sentence.sentence.replace("BLANK ", ""))
-            prob_has_no_position = self.compute_sentence_probability(sentence.sentence.replace("BLANK ", "не "))
-            
-            if prob_has_position > prob_has_no_position:
-                man_labels.append(1)
-            else:
-                man_labels.append(0)
-
-        for sentence in tqdm(woman_sentences[:int(self.dataset_percentage * len(woman_sentences))]):
-            prob_has_position = self.compute_sentence_probability(sentence.sentence.replace("BLANK ", ""))
-            prob_has_no_position = self.compute_sentence_probability(sentence.sentence.replace("BLANK ", "не "))
-
-            if prob_has_position > prob_has_no_position:
-                woman_labels.append(1)
-            else:
-                woman_labels.append(0)
-
-        return np.sum(np.array(man_labels) ==  np.array(woman_labels)) / len(woman_labels)
-
-
-    def predict(self) -> list[dict]:
-        """
-        Finds f1 scores for classes:
-        * man + no feminitive
-        * man + feminitive
-        * woman + no feminitive
-        * woman + feminitive
-
-        The results are then saved in a JSON file.
-
-        Returns:
-            dict: A dictionary containing the f1 scores
-                for each class.
-        """
-
-        print("Starting difference metric evaluation")
-        mean_diff_has_f, mean_diff_not_f, _, _, acc_diff_feminitive = self.compute_difference(self.sentences_man_no_feminitive, self.sentences_woman_feminitive)
-        mean_diff_has_nf, mean_diff_not_nf, _, _, acc_diff_no_feminitive = self.compute_difference(self.sentences_man_no_feminitive, self.sentences_woman_no_feminitive)
-
-        results = {"mean_diff_f": abs(mean_diff_has_f) + abs(mean_diff_not_f),
-                   "mean_diff_nf": abs(mean_diff_has_nf) + abs(mean_diff_not_nf),
-                   "prob_f1_diff_feminitive":acc_diff_feminitive,
-                   "prob_f1_diff_no_feminitive":acc_diff_no_feminitive,
-                  }
-        
-        with open(self.output_file, "w") as file:
-            json.dump(results, file, indent=4)
-        return results
+        with open(out_path, "w") as f:
+            for start in tqdm(range(0, len(items), self.batch_size), desc=f"Prob {meta.get('method')}"):
+                batch = items[start:start + self.batch_size]
+                for it, res in zip(batch, self.score_batch(batch)):
+                    assert len(res["token_logprobs"]) == it["n_tokens"]
+                    rec = {"row_id": it["row_id"], "item_id": it["item_id"], "variant": it["variant"],
+                           **it["record"], **meta, "sentence": it["sentence"], "n_tokens": it["n_tokens"],
+                           "pad": it["pad"], "n_debiased_tokens": len(it["debias_idx"]), **res}
+                    f.write(json.dumps(rec, ensure_ascii=False) + "\n")

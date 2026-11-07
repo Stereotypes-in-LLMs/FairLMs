@@ -17,13 +17,17 @@ We introduce both Q&A-based and probability-based evaluation metrics to quantify
 ```bash
 FairLMs/
 ├── configs/       # Configuration files for running experiments
-├── data/          # Synthetic hiring dataset (351 professions × 8 variants)
-├── debias/        # Implementations of prompt, embedding, and fine-tuning methods
+├── data/          # v2 dataset (data/v2: 349 professions × 8 variants, profession-level split); v1 files kept for reference
+├── debias/        # Prompt and embedding-projection debiasing (wrapper.py), LoRA fine-tuning (finetune.py)
 ├── metrics/       # Evaluation metrics (QAAccMetric, ProbDiffMetric, etc.)
-├── parser/        # Wrapper for running debiasing methods
+├── parser/        # Config parser
+├── scripts/       # Dataset build, statistics/reports, GPU run orchestration
+├── reports/       # Audit of v1, v2 dataset/method changes, results
+├── tests/         # Unit tests (CPU)
 ├── results/       # Saved resulting metrics 
 ├── utils.py       # Utility functions
-├── main.py        # Main script for running experiments
+├── run_eval.py    # Runs one model × method × metric configuration
+├── main.py        # Config-driven entry point
 ├── requirements.txt
 └── README.md
 ```
@@ -33,7 +37,7 @@ The dataset includes:
 
 Two datasets for accuracy and probability measurment
 
-351 Ukrainian professions
+349 Ukrainian professions (the paper says 351; see reports/AUDIT_v1.md)
 
 8 variations per profession:
 
@@ -59,6 +63,29 @@ Implemented in `metrics/`:
 
 Results are logged in `results/`.
 
+## Changes since the UNLP 2025 version
+
+The published version is preserved at tag `v1.0-unlp2025`. Version 2 fixes problems found after publication
+(details: [`reports/AUDIT_v1.md`](reports/AUDIT_v1.md), [`reports/CHANGES_v2.md`](reports/CHANGES_v2.md)):
+
+* **Data:** the v1 test set shared 1,368 of its 1,400 positive items with train. v2 splits by profession
+  (175 / 174) and keeps one block of 8 sentences per profession (`data/v2`, `scripts/build_v2.py`).
+* **Debiasing:** the projection reflected the first gender component instead of removing it; fixed and tested.
+* **QA metric:** answers are scored from token probabilities under the chat template instead of embedding similarity
+  of a 5-token generation; every answer is saved.
+* **Prob metric:** proper beginning-of-text conditioning, fixed scoring for the prompt method, and a real ProbAcc.
+  v1 Table 6 ("Acc Prob Metric") is man/woman agreement.
+* **Fine-tuning** code and data are now in the repository (`debias/finetune.py`).
+* **Statistics:** cluster-bootstrap CIs over professions, paired differences, exact McNemar with Holm correction.
+
+## Running
+
+```bash
+python scripts/build_v2.py                     # dataset v2 + checks
+python -m pytest tests                         # CPU unit tests
+scripts/run_all.sh all                         # GPU: R0, pilot, zero-shot, fine-tuning, stats (see reports/RUNBOOK.md)
+```
+
 ## Examples
 
 Example config files are in `configs/`. You can create your own by editing parameters for:
@@ -72,7 +99,6 @@ Example config files are in `configs/`. You can create your own by editing param
 - Output directories
 
 
-## Citation
 ## Citation
 
 ```bibtex

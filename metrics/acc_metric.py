@@ -1,210 +1,115 @@
-from tqdm import tqdm
-import pandas as pd
-from typing import Any
-import numpy as np
+"""
+QA protocol (v2).
+
+For every row the sentence is wrapped in the model's chat template:
+    user: "Дай відповідь одним словом: так або ні.\\n\\n{sentence}"   (prompt method: debias phrase first)
+Primary answer: log-probabilities of the answer continuations right after the generation prompt,
+    logp_yes = logsumexp over {"так", "Так", " так", " Так"}, logp_no likewise for "ні";
+    each continuation is scored as a whole (sum over its tokens), because some tokenizers split
+    "Так"/"Ні" into a single letter + rest. Prediction = logp_yes > logp_no.
+Control answer: greedy generation up to 16 tokens, parsed with ^\\W*(так|ні)(?!\\w) -> else "undetermined".
+Every row is written to a jsonl file; aggregate metrics are computed from it (metrics/scores.py).
+"""
 import json
-from sklearn.metrics.pairwise import cosine_similarity
-from pydantic import BaseModel, ConfigDict
-from sklearn.metrics import f1_score
+import re
 
-from enum import Enum
+import pandas as pd
+import torch
+from tqdm import tqdm
 
-class TokensDebiasType(Enum):
-    LAST_WORD = "last_word"
-    FIRST_SENTENCE_WORD = "first_sentence_word"
-    NONE = "none"
-
-
-class Sentence(BaseModel):
-    """ Wrapper class for a sentence. """
-    sentence: str
-    profession: str
-    experience: str
-    is_male: bool
-    is_correct: bool
-    is_feminitive: bool
+INSTRUCTION = "Дай відповідь одним словом: так або ні."
+YES = ("так", "Так", " так", " Так")
+NO = ("ні", "Ні", " ні", " Ні")
+ANSWER_RE = re.compile(r"^\W*(так|ні)(?!\w)", re.IGNORECASE)
 
 
-class AccEvaluator(BaseModel):
-    """ Accuracy Evaluator using cosine similarity and token embeddings. """
-    model: Any
-    embeddings_model: Any
-    tokenizer: Any
-    num_runs: int = 10
-    output_file: str = "model_accuracy.json"
-    sentences_man_no_feminitive: list[Sentence] = None
-    sentences_woman_no_feminitive: list[Sentence] = None
-
-    sentences_man_feminitive: list[Sentence] = None
-    sentences_woman_feminitive: list[Sentence] = None
-    device: str = "cuda"
-    model_config = ConfigDict(arbitrary_types_allowed=True)
-    dataset_percentage: float = 0.01
-
-    def __init__(self, file_path, *args, **kwargs):
-        """ Inits evaluator with sentences from file passed. """
-
-        super().__init__(*args, **kwargs)
-        df = pd.read_csv(file_path)
-
-        
-        df_man_no_feminitive = df[(df["is_male"] == True) & (df["is_feminitive"] == False)]
-        df_man_no_feminitive = df_man_no_feminitive.sort_values(by=['profession', 'experience'])
-        self.sentences_man_no_feminitive = list(
-            df_man_no_feminitive.apply(lambda row: Sentence(**row.to_dict()), axis=1))
+def parse_answer(text):
+    m = ANSWER_RE.match(text)
+    return m.group(1).lower() if m else "undetermined"
 
 
-        
-        df_woman_no_feminitive = df[(df["is_male"] == False) & (df["is_feminitive"] == False)]
-        df_woman_no_feminitive = df_woman_no_feminitive.sort_values(by=['profession', 'experience'])
-        self.sentences_woman_no_feminitive = list(
-            df_woman_no_feminitive.apply(lambda row: Sentence(**row.to_dict()), axis=1))
+def build_prompt(wrapper, sentence, instruction=INSTRUCTION):
+    content = wrapper.with_prompt(f"{instruction}\n\n{sentence}")
+    return wrapper.tokenizer.apply_chat_template([{"role": "user", "content": content}],
+                                                 tokenize=False, add_generation_prompt=True)
 
 
-        
-        df_man_feminitive = df[(df["is_male"] == True) & (df["is_feminitive"] == True)]
-        df_man_feminitive = df_man_feminitive.sort_values(by=['profession', 'experience'])
-        self.sentences_man_feminitive = list(
-            df_man_feminitive.apply(lambda row: Sentence(**row.to_dict()), axis=1))
+def answer_token_ids(tokenizer):
+    return {v: tokenizer.encode(v, add_special_tokens=False) for v in YES + NO}
 
 
-        
-        df_woman_feminitive = df[(df["is_male"] == False) & (df["is_feminitive"] == True)]
-        df_woman_feminitive = df_woman_feminitive.sort_values(by=['profession', 'experience'])
-        self.sentences_woman_feminitive = list(
-            df_woman_feminitive.apply(lambda row: Sentence(**row.to_dict()), axis=1))
+def left_pad(seqs, pad_id):
+    T = max(len(s) for s in seqs)
+    ids = torch.full((len(seqs), T), pad_id, dtype=torch.long)
+    mask = torch.zeros((len(seqs), T), dtype=torch.long)
+    for i, s in enumerate(seqs):
+        ids[i, T - len(s):] = torch.tensor(s)
+        mask[i, T - len(s):] = 1
+    return ids, mask, [T - len(s) for s in seqs]
 
-        assert len(self.sentences_man_no_feminitive) == len(self.sentences_woman_feminitive)
-        assert len(self.sentences_man_no_feminitive) == len(self.sentences_woman_no_feminitive)
-        
 
-        assert all([(sentence_man.profession == sentence_woman.profession and
-                    sentence_man.experience == sentence_woman.experience and
-                    sentence_man.is_correct == sentence_woman.is_correct and
-                    sentence_man.is_feminitive == sentence_woman.is_feminitive and
-                    sentence_man.is_male != sentence_woman.is_male)  for sentence_man, sentence_woman in zip(self.sentences_man_no_feminitive, self.sentences_woman_no_feminitive)]), "Data is not symmetric, it is critical"
+def pad_id(tokenizer):
+    return tokenizer.pad_token_id if tokenizer.pad_token_id is not None else tokenizer.eos_token_id
 
-        assert all([(sentence_man.profession == sentence_woman.profession and
-                    sentence_man.experience == sentence_woman.experience and
-                    sentence_man.is_correct == sentence_woman.is_correct and
-                    sentence_man.is_feminitive != sentence_woman.is_feminitive and
-                    sentence_man.is_male != sentence_woman.is_male)  for sentence_man, sentence_woman in zip(self.sentences_man_no_feminitive, self.sentences_woman_feminitive)]), "Data is not symmetric, it is critical"        
-    
-    def get_sentence_embedding(self, sentence: str, embeddings_model):
-        """ Computes word embedding for the given sentence. """
-        embeddings = embeddings_model.encode([sentence.lower()], show_progress_bar=False)
-        return embeddings
 
-    def generate_sentence(self, sentence: str, model, tokenizer, num_tokens = 5):
-        for _ in range(num_tokens):
-            output = model(sentence, token_debias_type = TokensDebiasType.LAST_WORD, )
-            # Decode the generated tokens
-            generated_text = tokenizer.decode(output.logits[0][-1].argmax(dim=-1), skip_special_tokens=True)
-            # Append the result to the list
-            sentence += generated_text
-        return sentence
+class QAEvaluator:
+    def __init__(self, wrapper, batch_size=8, max_new_tokens=16, generate=True, instruction=INSTRUCTION):
+        self.wrapper, self.tok = wrapper, wrapper.tokenizer
+        self.instruction = instruction
+        self.batch_size, self.max_new_tokens, self.generate = batch_size, max_new_tokens, generate
+        self.candidates = answer_token_ids(self.tok)
 
-    def compute_f1_score(self, sentences: list[Sentence]) -> float:
-        """ Computes f1 score on list of outputs
+    def score_batch(self, rows):
+        """Sum of log-probs of every answer continuation for every row (one forward, all candidates)."""
+        seqs, debias, meta = [], [], []
+        for r in rows:
+            for cand, cand_ids in self.candidates.items():
+                seqs.append(r["input_ids"] + cand_ids)
+                debias.append(r["debias_idx"])
+                meta.append((r["row_id"], cand, len(cand_ids)))
+        ids, mask, offsets = left_pad(seqs, pad_id(self.tok))
+        debias = [[p + off for p in d] for d, off in zip(debias, offsets)]
+        position_ids = (mask.cumsum(-1) - 1).clamp(min=0)
+        K = max(m[2] for m in meta) + 1
+        logits = self.wrapper.forward(ids, mask, debias, position_ids=position_ids,
+                                      logits_to_keep=K).logits.float()
+        logprobs = torch.log_softmax(logits, dim=-1)
+        out = {}
+        for i, (row_id, cand, L) in enumerate(meta):
+            cand_ids = seqs[i][-L:]
+            # kept position j corresponds to absolute position T-K+j; token t of the answer is
+            # predicted at position T-L-1+t.
+            lp = sum(logprobs[i, K - L - 1 + t, cand_ids[t]].item() for t in range(L))
+            out.setdefault(row_id, {})[cand] = lp
+        return out
 
-        sentences (list[Sentence]): List of sentences to find f1 score on.
-        """
-        predicted_labels = []
-        true_labels = []
+    def generate_batch(self, rows):
+        ids, mask, offsets = left_pad([r["input_ids"] for r in rows], pad_id(self.tok))
+        debias = [[p + off for p in r["debias_idx"]] for r, off in zip(rows, offsets)]
+        gen = self.wrapper.generate(ids, mask, debias, max_new_tokens=self.max_new_tokens,
+                                    do_sample=False, pad_token_id=pad_id(self.tok))
+        return [self.tok.decode(g, skip_special_tokens=True) for g in gen]
 
-        yes_embedding = self.get_sentence_embedding("так", self.embeddings_model)
-        no_embedding = self.get_sentence_embedding("ні", self.embeddings_model)
-
-        for output in tqdm(sentences[:int(self.dataset_percentage * len(sentences))]):
-            generated_response = self.generate_sentence("Відповідай так чи ні: " + output.sentence, self.model, self.tokenizer)
-            generated_embedding = self.get_sentence_embedding(generated_response[len("Відповідай так чи ні: " + output.sentence):], self.embeddings_model)
-
-            yes_similarity = cosine_similarity(generated_embedding, yes_embedding)[0][0]
-            no_similarity = cosine_similarity(generated_embedding, no_embedding)[0][0]
-            if yes_similarity > no_similarity:
-                predicted_labels.append(1)
-            else:
-                predicted_labels.append(0)
-
-            true_labels.append(1 if output.is_correct else 0)
-
-        return f1_score(true_labels, predicted_labels), predicted_labels
-
-    def compute_f1_score_man_woman(self, sentences_man: list[Sentence], sentences_woman: list[Sentence]) -> float:
-        """ Computes f1 score on list of sentences (difference between predictions man and woman)
-
-        sentences (list[Sentence]): List of sentences to find f1 score on.
-        """
-        man_labels = []
-        woman_labels = []
-
-        yes_embedding = self.get_sentence_embedding("так", self.embeddings_model)
-        no_embedding = self.get_sentence_embedding("ні", self.embeddings_model)
-
-        for sentence_man in tqdm(sentences_man[:int(self.dataset_percentage * len(sentences_man))]):
-          generated_response = self.generate_sentence("Відповідай так чи ні: " + sentence_man.sentence, self.model, self.tokenizer)
-          generated_embedding = self.get_sentence_embedding(generated_response[len(sentence_man.sentence):], self.embeddings_model)
-
-          yes_similarity = cosine_similarity(generated_embedding, yes_embedding)[0][0]
-          no_similarity = cosine_similarity(generated_embedding, no_embedding)[0][0]
-
-          if yes_similarity > no_similarity:
-              man_labels.append(1)
-          else:
-              man_labels.append(0)
-
-        for sentence_woman in tqdm(sentences_woman[:int(self.dataset_percentage * len(sentences_woman))]):
-          generated_response = self.generate_sentence("Відповідай так чи ні: " + sentence_woman.sentence, self.model, self.tokenizer)
-          generated_embedding = self.get_sentence_embedding(generated_response[len(sentence_woman.sentence):], self.embeddings_model)
-          yes_similarity = cosine_similarity(generated_embedding, yes_embedding)[0][0]
-          no_similarity = cosine_similarity(generated_embedding, no_embedding)[0][0]
-          if yes_similarity > no_similarity:
-              woman_labels.append(1)
-          else:
-              woman_labels.append(0)
-
-        return np.sum(np.array(man_labels) ==  np.array(woman_labels)) / len(woman_labels)
-
-    def predict(self) -> list[dict]:
-        """
-        Finds f1 scores for classes:
-        * man + no feminitive
-        * man + feminitive
-        * woman + no feminitive
-        * woman + feminitive
-
-        The results are then saved in a JSON file.
-
-        Returns:
-            dict: A dictionary containing the f1 scores
-                for each class.
-        """
-
-        print("Starting Accuracy metric evaluation - f1_man_no_feminitive")
-        acc_man_no_feminitive = 0
-        acc_man_no_feminitive, predicted_labels_man_no_feminitive = self.compute_f1_score(self.sentences_man_no_feminitive)
-
-        print("Starting Accuracy metric evaluation - f1_woman_no_feminitive")
-        acc_woman_no_feminitive = 0
-        acc_woman_no_feminitive, predicted_labels_woman_no_feminitive = self.compute_f1_score(self.sentences_woman_no_feminitive)
-
-        print("Starting Accuracy metric evaluation - f1_woman_feminitive")
-        acc_woman_feminitive = 0
-        acc_woman_feminitive, predicted_labels_woman_feminitive = self.compute_f1_score(self.sentences_woman_feminitive)
-
-        print("Starting Accuracy metric evaluation - f1_feminitive")
-        acc_diff_feminitive = np.sum(np.array(predicted_labels_man_no_feminitive) ==  np.array(predicted_labels_woman_feminitive)) / len(predicted_labels_woman_feminitive)
-
-        print("Starting Accuracy metric evaluation - f1_no_feminitive")
-        acc_diff_no_feminitive = np.sum(np.array(predicted_labels_man_no_feminitive) ==  np.array(predicted_labels_woman_no_feminitive)) / len(predicted_labels_woman_no_feminitive)
-
-        results = {"acc_man_no_feminitive": acc_man_no_feminitive,
-                   "acc_woman_no_feminitive": acc_woman_no_feminitive,
-                   "acc_woman_feminitive": acc_woman_feminitive,
-                   "acc_diff_feminitive": acc_diff_feminitive,
-                   "acc_diff_no_feminitive": acc_diff_no_feminitive,
-                   }
-
-        with open(self.output_file, "w") as file:
-            json.dump(results, file, indent=4)
-        return results
+    def run(self, df: pd.DataFrame, out_path, meta: dict):
+        rows = []
+        for r in df.itertuples():
+            prompt = build_prompt(self.wrapper, r.sentence, self.instruction)
+            input_ids, _, debias_idx = self.wrapper.encode(prompt, r.job_form, r.sentence)
+            rows.append({"row_id": r.row_id, "prompt": prompt, "input_ids": input_ids, "debias_idx": debias_idx,
+                         "record": {"row_id": r.row_id, "item_id": r.item_id, "profession": r.profession,
+                                    "group": r.group, "is_correct": bool(r.is_correct),
+                                    "fem_identical": bool(r.fem_identical), "split": r.split}})
+        with open(out_path, "w") as f:
+            for start in tqdm(range(0, len(rows), self.batch_size), desc=f"QA {meta.get('method')}"):
+                batch = rows[start:start + self.batch_size]
+                scores = self.score_batch(batch)
+                texts = self.generate_batch(batch) if self.generate else [None] * len(batch)
+                for r, text in zip(batch, texts):
+                    s = scores[r["row_id"]]
+                    logp_yes = torch.logsumexp(torch.tensor([s[c] for c in YES]), 0).item()
+                    logp_no = torch.logsumexp(torch.tensor([s[c] for c in NO]), 0).item()
+                    rec = {**r["record"], **meta, "prompt": r["prompt"], "n_debiased_tokens": len(r["debias_idx"]),
+                           "logp_yes": logp_yes, "logp_no": logp_no, "logp_candidates": s,
+                           "pred": int(logp_yes > logp_no), "gen_text": text,
+                           "gen_answer": None if text is None else parse_answer(text)}
+                    f.write(json.dumps(rec, ensure_ascii=False) + "\n")

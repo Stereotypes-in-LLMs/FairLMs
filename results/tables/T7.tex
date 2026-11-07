@@ -1,0 +1,14 @@
+\begin{tabular}{llll}
+\toprule
+claim (paper) & published & corrected & still holds? \\
+\midrule
+QADiff is consistently larger in feminitive contexts (p. 67) & holds for 3/6 models (point estimates) & gap CI > 0 for 4/6 models & partly \\
+hard debiasing: average relative improvement of 18.9% & 18.9% (2.7% without Qwen2.5-3B, whose QADiff is 0–3 items of 700) & ΔQADiff CI < 0 in 0/12 model × context cells & no \\
+prompt debiasing reduces bias & mixed (see Table 1) & ΔQADiff CI < 0 in 2/12, > 0 in 2/12 cells & no \\
+soft debiasing reduces bias & mixed (see Table 1) & ΔQADiff CI < 0 in 0/12, > 0 in 0/12 cells & no \\
+fine-tuning: disparity decreased substantially & measured on a test set sharing 1368/1400 positives with train & on unseen professions ΔQADiff CI < 0 in 4/6 cells & partly \\
+fine-tuning debiases (beyond learning the task) & not tested (no control) & ft − male-only control: ΔQADiff CI < 0 in 0/6 cells & no \\
+Qwen2.5-3B: zero difference after debiasing & QADiff 0.000–0.004 (0–3 of 700 items), F1 = 2/3 & yes_rate (man, non-fem): none 0.701, prompt 0.678, soft 0.711, hard 0.706 & no: not degenerate under v2, QADiff in T3 \\
+debiasing comes at the cost of lower QA accuracy & F1 drops ≤ 0.002 for several configs & ΔF1 CI < 0 in 17/72 model × method × group cells & see T2 \\
+\bottomrule
+\end{tabular}
